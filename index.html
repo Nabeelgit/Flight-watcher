@@ -19,35 +19,58 @@
 
         <h1>FLIGHT WATCHER</h1>
 
-        <button id="camera-btn">
-            ACCESS CAMERA
-        </button>
+        <button id="camera-btn">ACCESS RADAR</button>
+
+        <!-- Live status line (errors, scanning messages) -->
+        <p id="status" class="status-line"></p>
 
         <div id="results">
-            <h2>TARGET DATA</h2>
 
-            <div class="route-display">
-                Origin → Destination
+            <div class="results-header">
+                <h2>TARGET DATA</h2>
+                <span id="lock-label">STANDBY</span>
+            </div>
+
+            <div class="route-display" id="val-route">
+                Bearing — · Elev —
             </div>
 
             <div class="data-line">
-                <span>Flight:</span>
-                <span>---</span>
+                <span>Flight</span>
+                <span id="val-flight">---</span>
             </div>
 
             <div class="data-line">
-                <span>Aircraft:</span>
-                <span>---</span>
+                <span>ICAO</span>
+                <span id="val-aircraft">---</span>
             </div>
 
             <div class="data-line">
-                <span>Altitude:</span>
-                <span>---</span>
+                <span>Altitude</span>
+                <span id="val-altitude">---</span>
             </div>
 
             <div class="data-line">
-                <span>Speed:</span>
-                <span>---</span>
+                <span>Speed</span>
+                <span id="val-speed">---</span>
+            </div>
+
+            <div class="data-line">
+                <span>Distance</span>
+                <span id="val-distance">---</span>
+            </div>
+        </div>
+
+        <!-- Debug panel — shows raw sensor + fetch data -->
+        <div id="debug">
+            <div class="debug-row">
+                <span>Heading</span><span id="dbg-heading">—</span>
+            </div>
+            <div class="debug-row">
+                <span>Pitch</span><span id="dbg-pitch">—</span>
+            </div>
+            <div class="debug-row">
+                <span>Aircraft in range</span><span id="dbg-count">—</span>
             </div>
         </div>
 
