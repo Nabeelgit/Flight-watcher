@@ -1,18 +1,10 @@
 // ─────────────────────────────────────────────
-//  Flight Watcher — script.js
+//  Flight Watcher — script.js  (v4 — ADS-B Exchange)
 // ─────────────────────────────────────────────
 
-const WORKER_URL = "https://falling-star-4aca.nabeel30march.workers.dev";
-
-// Angular cone for "locked" — plane must be within this many degrees
-// of where you're pointing. 20° is forgiving; tighten later.
-const LOCK_THRESHOLD_DEG = 20;
-
-// Fetch interval. Keep at 15s on mobile — OpenSky rate-limits aggressively.
-const FETCH_INTERVAL_MS = 15_000;
-
-// Bounding box — Florida + nearby states.
-// Kept large so planes are found even far away; matching handles proximity.
+const WORKER_URL          = "https://falling-star-4aca.nabeel30march.workers.dev";
+const LOCK_THRESHOLD_DEG  = 20;
+const FETCH_INTERVAL_MS   = 15_000;
 const BBOX = { lamin: 25, lamax: 31, lomin: -87, lomax: -79 };
 
 // ── State ──────────────────────────────────────
@@ -24,9 +16,10 @@ let aircraftList = [];
 let matchLoop    = null;
 let fetchTimer   = null;
 let active       = false;
-let isFetching   = false;   // prevents overlapping fetches
-let lockedIcao   = null;    // icao24 of currently locked aircraft
-let lastFetchAt  = null;    // timestamp of last successful fetch
+let isFetching   = false;
+let lockedIcao   = null;
+let lastFetchAt  = null;
+let routeFetching = new Set();  // callsigns currently being looked up
 
 // ── DOM refs ────────────────────────────────────
 const cameraBtn  = document.getElementById("camera-btn");
@@ -42,7 +35,7 @@ const pitchDbg   = document.getElementById("dbg-pitch");
 const countDbg   = document.getElementById("dbg-count");
 const lockEl     = document.getElementById("lock-label");
 const fetchDbg   = document.getElementById("dbg-fetch");
-const rawDbg     = document.getElementById("dbg-raw");     // raw worker response snippet
+const rawDbg     = document.getElementById("dbg-raw");
 
 // ── Entry point ────────────────────────────────
 cameraBtn.addEventListener("click", async () => {
@@ -65,10 +58,7 @@ cameraBtn.addEventListener("click", async () => {
     }
   }
 
-  if (!navigator.geolocation) {
-    setStatus("Geolocation not supported.");
-    return;
-  }
+  if (!navigator.geolocation) { setStatus("Geolocation not supported."); return; }
 
   setStatus("Getting location…");
   navigator.geolocation.getCurrentPosition(
@@ -99,70 +89,49 @@ function startRadar() {
 // ── Sensor handler ─────────────────────────────
 function handleOrientation(e) {
   if (e.alpha !== null) phoneHeading = e.alpha;
-
-  // beta=0  → flat face-up, beta=90 → upright portrait
-  // elevation = 90 - beta when holding phone upright pointing at sky
-  if (e.beta !== null) {
-    phonePitch = Math.min(90, Math.max(0, 90 - e.beta));
-  }
+  if (e.beta  !== null) phonePitch   = Math.min(90, Math.max(0, 90 - e.beta));
 
   if (headingDbg) headingDbg.textContent = phoneHeading?.toFixed(1) ?? "—";
   if (pitchDbg)   pitchDbg.textContent   = `${phonePitch?.toFixed(1) ?? "—"}° (β${e.beta?.toFixed(0) ?? "—"})`;
 }
 
-// ── Fetch aircraft via proxy ────────────────────
+// ── Fetch aircraft ──────────────────────────────
 async function fetchAircraft() {
-  // Don't overlap fetches — if previous one is still in flight, skip this tick
-  if (isFetching) {
-    console.log("Fetch skipped — previous still in flight");
-    return;
-  }
-
+  if (isFetching) return;
   isFetching = true;
   if (fetchDbg) fetchDbg.textContent = "fetching…";
 
   const url = `${WORKER_URL}?${new URLSearchParams(BBOX)}`;
-
   try {
     const res = await fetch(url);
-
     if (!res.ok) {
-      // Don't wipe aircraftList on a bad response — keep stale data
-      console.warn(`Worker HTTP ${res.status}`);
       if (fetchDbg) fetchDbg.textContent = `HTTP ${res.status}`;
       return;
     }
 
     const data = await res.json();
+    if (rawDbg) rawDbg.textContent = JSON.stringify(data).slice(0, 120);
 
-    if (!data.aircraft) {
-      console.warn("Worker returned no aircraft array:", JSON.stringify(data).slice(0, 200));
-      if (fetchDbg) fetchDbg.textContent = `no aircraft field — raw: ${JSON.stringify(data).slice(0, 80)}`;
-      // Do NOT wipe aircraftList — keep previous data
+    if (data.error) {
+      if (fetchDbg) fetchDbg.textContent = `ERR: ${data.error}`;
+      // Don't wipe list on error
       return;
     }
 
-    const parsed = data.aircraft.map(parseAircraft).filter(Boolean);
-
-    // Only update the list when we actually got results
-    // If OpenSky returned 0 states, keep the old list — transient empty responses
-    // happen on mobile networks and shouldn't blank the display
-    if (parsed.length > 0) {
-      aircraftList = parsed;
-      lastFetchAt  = Date.now();
-    } else {
-      console.warn("Parsed 0 aircraft — keeping stale list of", aircraftList.length);
+    if (!data.aircraft || data.aircraft.length === 0) {
+      if (fetchDbg) fetchDbg.textContent = `empty (total=${data.total ?? "?"})`;
+      // Don't wipe list — keep stale data
+      return;
     }
 
-    if (countDbg) countDbg.textContent = `${aircraftList.length} (${parsed.length} this fetch)`;
+    aircraftList = data.aircraft.map(parseAircraft).filter(Boolean);
+    lastFetchAt  = Date.now();
+
+    if (countDbg) countDbg.textContent = `${aircraftList.length} of ${data.total ?? "?"}`;
     if (fetchDbg) fetchDbg.textContent = `OK ${new Date().toLocaleTimeString()}`;
-    if (rawDbg)   rawDbg.textContent   = JSON.stringify(data).slice(0, 80);
 
   } catch (err) {
-    // Network error — keep stale list, show error in debug only
-    console.error("Fetch error:", err.message);
     if (fetchDbg) fetchDbg.textContent = `ERR: ${err.message}`;
-    // Do NOT call setStatus here — it would overwrite the scanning message
   } finally {
     isFetching = false;
   }
@@ -170,7 +139,8 @@ async function fetchAircraft() {
 
 function parseAircraft(a) {
   if (a.lat == null || a.lon == null || a.alt == null) return null;
-  if (a.alt < 100) return null;   // skip ground / very low traffic
+  // alt is already converted to metres in the worker (ft × 0.3048)
+  if (a.alt < 100) return null;
   return {
     icao24:   a.icao24,
     callsign: a.callsign?.trim() || "N/A",
@@ -178,10 +148,38 @@ function parseAircraft(a) {
     lon:      a.lon,
     altM:     a.alt,
     altFt:    Math.round(a.alt * 3.28084),
-    speedKts: a.speed ? Math.round(a.speed * 1.94384) : null,
+    // ADS-B Exchange gives speed in knots already — no conversion needed
+    speedKts: a.speed ? Math.round(a.speed) : null,
     heading:  a.heading,
     route:    a.route ?? null,
   };
+}
+
+// ── Route fetch (on-demand when a target locks) ─
+async function fetchRoute(callsign) {
+  if (!callsign || callsign === "N/A") return;
+  if (routeFetching.has(callsign)) return;
+
+  // Check if already in the list with a route
+  const ac = aircraftList.find(a => a.callsign === callsign);
+  if (ac?.route?.origin) return;   // already have it
+
+  routeFetching.add(callsign);
+  try {
+    const res  = await fetch(`${WORKER_URL}/route?callsign=${encodeURIComponent(callsign)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.route) {
+      // Patch it into the aircraftList so showTarget picks it up
+      aircraftList = aircraftList.map(a =>
+        a.callsign === callsign ? { ...a, route: data.route } : a
+      );
+    }
+  } catch {
+    // silent — route is non-critical
+  } finally {
+    routeFetching.delete(callsign);
+  }
 }
 
 // ── Matching engine ─────────────────────────────
@@ -192,23 +190,22 @@ function matchAndDisplay() {
   }
   if (!userLat || !userLon) return;
   if (aircraftList.length === 0) {
-    const age = lastFetchAt ? `Last fetch: ${Math.round((Date.now() - lastFetchAt) / 1000)}s ago` : "No fetch yet";
-    setStatus(`No aircraft data. ${age}`);
+    const age = lastFetchAt
+      ? `Last data: ${Math.round((Date.now() - lastFetchAt) / 1000)}s ago`
+      : "No data yet";
+    setStatus(`No aircraft. ${age}`);
     return;
   }
 
-  let best      = null;
-  let bestDeg   = Infinity;   // true angular separation in degrees
+  let best    = null;
+  let bestDeg = Infinity;
 
   for (const ac of aircraftList) {
     const bearing   = bearingTo(userLat, userLon, ac.lat, ac.lon);
     const elevation = elevationTo(userLat, userLon, ac.altM, ac.lat, ac.lon);
-
-    // Angular separation — simple Euclidean in angle-space
-    // This is accurate enough within ±30° which is all we care about
     const dH  = angleDiff(phoneHeading, bearing);
     const dP  = angleDiff(phonePitch,   elevation);
-    const deg = Math.sqrt(dH * dH + dP * dP);   // degrees, not a weird composite
+    const deg = Math.sqrt(dH * dH + dP * dP);
 
     if (deg < bestDeg) {
       bestDeg = deg;
@@ -216,20 +213,16 @@ function matchAndDisplay() {
     }
   }
 
-  // Hysteresis — once locked, require new candidate to beat current by 5°
+  // Hysteresis — require 5° improvement to break an existing lock
   if (lockedIcao && best?.icao24 !== lockedIcao) {
-    const current = aircraftList.find(a => a.icao24 === lockedIcao);
-    if (current) {
-      const cBearing   = bearingTo(userLat, userLon, current.lat, current.lon);
-      const cElevation = elevationTo(userLat, userLon, current.altM, current.lat, current.lon);
-      const cdH = angleDiff(phoneHeading, cBearing);
-      const cdP = angleDiff(phonePitch,   cElevation);
-      const currentDeg = Math.sqrt(cdH * cdH + cdP * cdP);
-
-      if (best.angularDeg > currentDeg - 5) {
-        // Not clearly better — keep the existing lock
-        best = { ...current, bearing: cBearing, elevation: cElevation, angularDeg: currentDeg };
-        bestDeg = currentDeg;
+    const cur = aircraftList.find(a => a.icao24 === lockedIcao);
+    if (cur) {
+      const cb  = bearingTo(userLat, userLon, cur.lat, cur.lon);
+      const ce  = elevationTo(userLat, userLon, cur.altM, cur.lat, cur.lon);
+      const cdeg = Math.sqrt(angleDiff(phoneHeading, cb) ** 2 + angleDiff(phonePitch, ce) ** 2);
+      if (best.angularDeg > cdeg - 5) {
+        best    = { ...cur, bearing: cb, elevation: ce, angularDeg: cdeg };
+        bestDeg = cdeg;
       }
     }
   }
@@ -238,10 +231,12 @@ function matchAndDisplay() {
 
   if (best && bestDeg <= LOCK_THRESHOLD_DEG) {
     showTarget(best, true);
+    // Kick off a route lookup if we don't have one yet (non-blocking)
+    if (!best.route?.origin) fetchRoute(best.callsign);
   } else {
     if (best) showTarget(best, false);
     setStatus(best
-      ? `Scanning… nearest: ${best.callsign} ${bestDeg.toFixed(1)}° off-axis`
+      ? `Scanning… ${best.callsign} ${bestDeg.toFixed(1)}° off-axis`
       : "No match found"
     );
     if (lockEl) { lockEl.textContent = "SCANNING"; lockEl.style.color = "#7df9ff"; }
@@ -261,11 +256,13 @@ function showTarget(ac, locked) {
   if (routeEl) {
     const r = ac.route;
     if (r?.origin && r?.destination) {
-      const from = r.originCity ? `${r.originCity} (${r.origin})` : r.origin;
+      const from = r.originCity      ? `${r.originCity} (${r.origin})`      : r.origin;
       const to   = r.destinationCity ? `${r.destinationCity} (${r.destination})` : r.destination;
       routeEl.textContent = `${from} → ${to}`;
+    } else if (routeFetching.has(ac.callsign)) {
+      routeEl.textContent = "Looking up route…";
     } else {
-      routeEl.textContent = "Route data unavailable";
+      routeEl.textContent = "Route unavailable";
     }
   }
 
@@ -281,10 +278,9 @@ function setStatus(msg) {
   if (statusEl) statusEl.textContent = msg;
 }
 
-// ── Geometry helpers ────────────────────────────
+// ── Geometry ────────────────────────────────────
 function bearingTo(lat1, lon1, lat2, lon2) {
-  const φ1 = toRad(lat1), φ2 = toRad(lat2);
-  const Δλ = toRad(lon2 - lon1);
+  const φ1 = toRad(lat1), φ2 = toRad(lat2), Δλ = toRad(lon2 - lon1);
   const y  = Math.sin(Δλ) * Math.cos(φ2);
   const x  = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
   return (toDeg(Math.atan2(y, x)) + 360) % 360;
@@ -297,12 +293,10 @@ function elevationTo(uLat, uLon, altM, acLat, acLon) {
 }
 
 function haversineKm(lat1, lon1, lat2, lon2) {
-  const R    = 6371;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a    = Math.sin(dLat / 2) ** 2
-             + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
 function angleDiff(a, b) {
