@@ -46,15 +46,18 @@ cameraBtn.addEventListener("click", async () => {
       clearInterval(fetchTimer);
       matchLoop = null;
       fetchTimer = null;
-      cameraBtn.textContent = "RESUME RADAR";
-      cameraBtn.disabled = false;
-      if (lockEl) { lockEl.textContent = "PAUSED"; lockEl.style.color = "#7df9ff"; }
-      setStatus("Radar paused.");
+      cameraBtn.textContent = "▶ RESUME";
+      cameraBtn.style.borderColor = "#ff9f00";
+      cameraBtn.style.color = "#ff9f00";
+      if (lockEl) { lockEl.textContent = "PAUSED"; lockEl.style.color = "#ff9f00"; }
+      setStatus("Radar paused — tap Resume to continue.");
     } else {
       fetchAircraft();
       fetchTimer = setInterval(fetchAircraft, FETCH_INTERVAL_MS);
       matchLoop  = setInterval(matchAndDisplay, 250);
-      cameraBtn.textContent = "PAUSE RADAR";
+      cameraBtn.textContent = "⏸ PAUSE";
+      cameraBtn.style.borderColor = "";
+      cameraBtn.style.color = "";
       setStatus("Radar resumed.");
     }
     return;
@@ -95,7 +98,7 @@ cameraBtn.addEventListener("click", async () => {
 // ── Radar loop ─────────────────────────────────
 function startRadar() {
   active = true;
-  cameraBtn.textContent = "PAUSE RADAR";
+  cameraBtn.textContent = "⏸ PAUSE";
   cameraBtn.disabled    = false;
 
   window.addEventListener("deviceorientation", handleOrientation, true);
