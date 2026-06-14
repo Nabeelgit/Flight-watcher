@@ -118,27 +118,30 @@ function handleOrientation(e) {
 
 // ── Fetch aircraft via proxy ────────────────────
 async function fetchAircraft() {
-  const params = new URLSearchParams(BBOX).toString();
-  const url = `${WORKER_URL}?${params}`;
+    const params = new URLSearchParams(BBOX).toString();
+    const url = `${WORKER_URL}?${params}`;
 
-  try {
-    const res  = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+    try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-    if (!data.states) {
-      console.warn("OpenSky: no states returned", data);
-      aircraftList = [];
-    } else {
-      aircraftList = data.states.map(parseState).filter(Boolean);
+        const data = await res.json();
+
+        // ✅ UPDATED: backend now returns data.aircraft
+        if (!data.aircraft) {
+            console.warn("Worker: no aircraft returned", data);
+            aircraftList = [];
+        } else {
+            aircraftList = data.aircraft.map(parseState).filter(Boolean);
+        }
+
+        if (countDbg) countDbg.textContent = aircraftList.length;
+        console.log(`[${new Date().toLocaleTimeString()}] Aircraft: ${aircraftList.length}`);
+
+    } catch (err) {
+        console.error("Fetch error:", err);
+        setStatus("Fetch error — check worker URL or network.");
     }
-
-    if (countDbg) countDbg.textContent = aircraftList.length;
-    console.log(`[${new Date().toLocaleTimeString()}] Aircraft: ${aircraftList.length}`);
-  } catch (err) {
-    console.error("Fetch error:", err);
-    setStatus("Fetch error — check worker URL or network.");
-  }
 }
 
 /**
@@ -153,67 +156,93 @@ async function fetchAircraft() {
  * [11] vertical_rate  [12] sensors  [13] geo_altitude
  */
 function parseState(s) {
-  const lat = s[6];
-  const lon = s[5];
-  const alt = s[7] ?? s[13];   // baro first, geo fallback
-  if (lat == null || lon == null || alt == null) return null;
-  if (s[8]) return null;        // skip ground traffic
+    const lat = s.lat;
+    const lon = s.lon;
+    const alt = s.alt;
 
-  return {
-    icao24:   s[0],
-    callsign: s[1]?.trim() || "N/A",
-    lat,
-    lon,
-    altM:     alt,                          // metres
-    altFt:    Math.round(alt * 3.28084),
-    speedKts: s[9] != null ? Math.round(s[9] * 1.94384) : null,
-    heading:  s[10],
-  };
+    if (lat == null || lon == null || alt == null) return null;
+
+    return {
+        icao24: s.icao24,
+        callsign: s.callsign?.trim() || "N/A",
+        lat,
+        lon,
+        altM: alt,
+        altFt: Math.round(alt * 3.28084),
+        speedKts: s.speed ? Math.round(s.speed * 1.94384) : null,
+        heading: s.heading,
+
+        // ✈️ NEW: route from backend
+        route: s.route || null
+    };
 }
 
 
 // ── Matching engine ─────────────────────────────
 function matchAndDisplay() {
-  if (phoneHeading === null || phonePitch === null) {
-    setStatus("Waiting for compass data… (point your phone at the sky)");
-    return;
-  }
-  if (!userLat || !userLon) return;
-  if (aircraftList.length === 0) {
-    setStatus("No aircraft in range.");
-    return;
-  }
-
-  let best = null;
-  let bestAngle = Infinity;
-
-  for (const ac of aircraftList) {
-    const bearing   = bearingTo(userLat, userLon, ac.lat, ac.lon);   // 0–360
-    const elevation = elevationTo(userLat, userLon, ac.altM, ac.lat, ac.lon); // deg above horizon
-
-    // Angular separation between phone direction and aircraft direction
-    const dH = angleDiff(phoneHeading, bearing);
-    const dP = angleDiff(phonePitch,   elevation);
-    const angular = Math.sqrt(dH * dH + dP * dP);   // combined cone distance
-
-    if (angular < bestAngle) {
-      bestAngle = angular;
-      best = { ...ac, bearing, elevation, angular };
+    if (phoneHeading === null || phonePitch === null) {
+        setStatus("Waiting for compass data… (point your phone at the sky)");
+        return;
     }
-  }
+    if (!userLat || !userLon) return;
+    if (aircraftList.length === 0) {
+        setStatus("No aircraft in range.");
+        return;
+    }
 
-  if (best && bestAngle <= MATCH_THRESHOLD_DEG) {
-    showTarget(best);
-  } else {
-    // Show closest even if outside threshold — give partial info
-    if (best) showTarget(best, false);
-    const msg = best
-      ? `Scanning… nearest ${best.callsign} is ${best.angular.toFixed(1)}° off-axis`
-      : "No aircraft detected.";
-    setStatus(msg);
-    if (lockEl) lockEl.textContent = "SCANNING";
-    if (lockEl) lockEl.style.color = "#7df9ff";
-  }
+    let best = null;
+    let bestScore = Infinity;
+
+    for (const ac of aircraftList) {
+
+        const bearing = bearingTo(userLat, userLon, ac.lat, ac.lon);
+        const elevation = elevationTo(userLat, userLon, ac.altM, ac.lat, ac.lon);
+        const distKm = haversineKm(userLat, userLon, ac.lat, ac.lon); // ✅ FIX #2
+
+        const dH = angleDiff(phoneHeading, bearing);
+        const dP = angleDiff(phonePitch, elevation);
+
+        // ✅ FIX #1 + FIX #2 (proper weighted scoring)
+        const score =
+            (dH * dH) +
+            (2.0 * dP * dP) +
+            (0.05 * distKm);
+        if (!isFinite(score)) continue;
+        if (score < bestScore) {
+            bestScore = score;
+            best = { ...ac, bearing, elevation, score };
+        }
+    }
+
+    // optional lock stability (FIX #3)
+    if (window._lockedAircraft) {
+        const drift = Math.abs(window._lockedAircraft.score - bestScore);
+
+        if (drift < 8) {
+            best = window._lockedAircraft;
+        } else {
+            window._lockedAircraft = best;
+        }
+    } else {
+        window._lockedAircraft = best;
+    }
+
+    if (best && bestScore <= MATCH_THRESHOLD_DEG) {
+        showTarget(best);
+    } else {
+        if (best) showTarget(best, false);
+
+        setStatus(
+            best
+                ? `Scanning… nearest ${best.callsign} is ${best.score.toFixed(1)}° off-axis`
+                : "No aircraft detected."
+        );
+
+        if (lockEl) {
+            lockEl.textContent = "SCANNING";
+            lockEl.style.color = "#7df9ff";
+        }
+    }
 }
 
 
@@ -226,7 +255,13 @@ function showTarget(ac, locked = true) {
   if (altEl)      altEl.textContent      = ac.altFt.toLocaleString() + " ft";
   if (speedEl)    speedEl.textContent    = ac.speedKts != null ? ac.speedKts + " kts" : "—";
   if (distEl)     distEl.textContent     = distKm.toFixed(1) + " km";
-  if (routeEl)    routeEl.textContent    = `Bearing ${Math.round(ac.bearing)}° · Elev ${ac.elevation.toFixed(1)}°`;
+  if (routeEl) {
+    if (ac.route?.origin && ac.route?.destination) {
+        routeEl.textContent = `${ac.route.origin} → ${ac.route.destination}`;
+    } else {
+        routeEl.textContent = "Route unknown";
+    }
+  }
 
   if (lockEl) {
     lockEl.textContent = locked ? "TARGET LOCKED" : "SCANNING";
