@@ -251,3 +251,37 @@ h1{
             rotate(-25deg);
     }
 }
+
+/* ── Manual lock controls ─────────────────── */
+#manual-controls {
+    display: flex;
+    gap: 10px;
+    margin-top: 18px;
+}
+
+#manual-controls button {
+    flex: 1;
+    font-family: 'Orbitron', sans-serif;
+    font-size: .65rem;
+    letter-spacing: 2px;
+    padding: 10px 0;
+    background: transparent;
+    border: 1px solid rgba(125,249,255,.35);
+    border-radius: 4px;
+    color: rgba(125,249,255,.7);
+    cursor: pointer;
+    transition: .2s ease;
+}
+
+#manual-controls button:hover,
+#manual-controls button:active {
+    background: rgba(125,249,255,.08);
+    border-color: #7df9ff;
+    color: #7df9ff;
+}
+
+#lock-btn.hard-locked {
+    border-color: #00ff88;
+    color: #00ff88;
+    box-shadow: 0 0 8px rgba(0,255,136,.3);
+}

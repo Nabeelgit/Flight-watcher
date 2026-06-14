@@ -23,7 +23,7 @@
 
         <p id="status" class="status-line"></p>
 
-        <div id="results">
+        <div id="results" title="Tap to manually lock/unlock target">
             <div class="results-header">
                 <h2>TARGET DATA</h2>
                 <span id="lock-label">STANDBY</span>
@@ -51,6 +51,11 @@
             <div class="data-line">
                 <span>Distance</span>
                 <span id="val-distance">---</span>
+            </div>
+
+            <div id="manual-controls">
+                <button id="lock-btn">⊕ LOCK TARGET</button>
+                <button id="next-btn">⇄ NEXT</button>
             </div>
         </div>
 
