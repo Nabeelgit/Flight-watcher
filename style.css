@@ -1,0 +1,158 @@
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+}
+
+body{
+    font-family:'Orbitron', sans-serif;
+    min-height:100vh;
+
+    display:flex;
+    justify-content:center;
+    align-items:center;
+
+    background-color:#050505;
+
+    /* Dot Grid */
+    background-image:
+        radial-gradient(
+            rgba(0,255,255,0.18) 1px,
+            transparent 1px
+        );
+
+    background-size:30px 30px;
+}
+
+.container{
+    width:min(95%,700px);
+
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:30px;
+}
+
+h1{
+    font-size: clamp(2.5rem,5vw,3.5rem);
+    letter-spacing:8px;
+    color:#7df9ff;
+
+    text-shadow:
+        0 0 5px #64c4c9,
+        0 0 15px #4f9ea2,
+        0 0 30px #3ad5d5;
+}
+
+#camera-btn{
+    font-family:'Orbitron', sans-serif;
+    font-size:1rem;
+
+    padding:16px 40px;
+
+    color:#7df9ff;
+    background:transparent;
+
+    border:2px solid #7df9ff;
+    border-radius:6px;
+
+    cursor:pointer;
+
+    transition:0.25s ease;
+
+    box-shadow:
+        0 0 10px rgba(125,249,255,.4),
+        inset 0 0 10px rgba(125,249,255,.2);
+}
+
+#camera-btn:hover{
+    background:rgba(125,249,255,.08);
+
+    box-shadow:
+        0 0 20px rgba(125,249,255,.7),
+        0 0 40px rgba(125,249,255,.3);
+}
+
+#results{
+    width:100%;
+
+    padding:25px;
+
+    border:1px solid rgba(125,249,255,.4);
+
+    background:rgba(0,255,255,.03);
+
+    box-shadow:
+        0 0 15px rgba(125,249,255,.15);
+
+    backdrop-filter:blur(4px);
+}
+
+#results h2{
+    color:#7df9ff;
+
+    margin-bottom:20px;
+
+    text-align:center;
+
+    text-shadow:
+        0 0 8px #7df9ff;
+}
+
+.data-line{
+    display:flex;
+    justify-content:space-between;
+
+    margin:12px 0;
+
+    color:#d7ffff;
+
+    text-shadow:
+        0 0 6px rgba(125,249,255,.6);
+}
+
+.data-line span:first-child{
+    color:#7df9ff;
+}
+
+.route-display{
+    text-align:center;
+    font-size:1.2rem;
+    margin-bottom:20px;
+    color:#7df9ff;
+
+    text-shadow:
+        0 0 5px #7df9ff,
+        0 0 15px #7df9ff;
+}
+
+.plane-bg{
+    position:fixed;
+    top:50%;
+    left:50%;
+    width:min(80vw, 1000px);
+    pointer-events:none;
+    z-index:0;
+    animation: flyIn 1.5s ease-out forwards;
+
+    filter:
+    brightness(0)
+    invert(1);
+
+    opacity:0.04;
+}
+
+
+@keyframes flyIn{
+    from{
+        transform:
+            translate(-150vw, 80vh)
+            rotate(-25deg);
+    }
+
+    to{
+        transform:
+            translate(-50%, -50%)
+            rotate(-25deg);
+    }
+}
