@@ -48,16 +48,16 @@ lockBtn?.addEventListener("click", () => {
   if (manualLock) {
     // Release — back to auto-scan
     manualLock = null;
-    lockBtn.textContent = "⊕ LOCK TARGET";
+    lockBtn.textContent = "LOCK TARGET";
     lockBtn.classList.remove("hard-locked");
     if (lockEl) { lockEl.textContent = "SCANNING"; lockEl.style.color = "#7df9ff"; }
-    setStatus("Manual lock released — auto-scanning");
+    setStatus("Manual lock released - auto-scanning");
   } else {
     // Lock onto the current closest aircraft in nearbyList
     const target = nearbyList[0];
     if (!target) { setStatus("No aircraft to lock"); return; }
     manualLock = target.icao24;
-    lockBtn.textContent = "⊗ LOCKED — TAP TO RELEASE";
+    lockBtn.textContent = "LOCKED - TAP TO RELEASE";
     lockBtn.classList.add("hard-locked");
     showTarget(target, true);
     fetchRoute(target.callsign);
@@ -74,16 +74,16 @@ cameraBtn.addEventListener("click", async () => {
       clearInterval(fetchTimer);
       matchLoop = null;
       fetchTimer = null;
-      cameraBtn.textContent = "▶ RESUME";
+      cameraBtn.textContent = "RESUME";
       cameraBtn.style.borderColor = "#ff9f00";
       cameraBtn.style.color = "#ff9f00";
       if (lockEl) { lockEl.textContent = "PAUSED"; lockEl.style.color = "#ff9f00"; }
-      setStatus("Radar paused — tap Resume to continue.");
+      setStatus("Radar paused - tap Resume to continue.");
     } else {
       fetchAircraft();
       fetchTimer = setInterval(fetchAircraft, FETCH_INTERVAL_MS);
       matchLoop  = setInterval(matchAndDisplay, 250);
-      cameraBtn.textContent = "⏸ PAUSE";
+      cameraBtn.textContent = "PAUSE";
       cameraBtn.style.borderColor = "";
       cameraBtn.style.color = "";
       setStatus("Radar resumed.");
@@ -99,7 +99,7 @@ cameraBtn.addEventListener("click", async () => {
     try {
       const perm = await DeviceOrientationEvent.requestPermission();
       if (perm !== "granted") {
-        setStatus("Orientation permission denied. Enable in Settings → Safari.");
+        setStatus("Orientation permission denied. Enable in Settings > Safari.");
         return;
       }
     } catch (err) {
@@ -126,7 +126,7 @@ cameraBtn.addEventListener("click", async () => {
 // ── Radar loop ─────────────────────────────────
 function startRadar() {
   active = true;
-  cameraBtn.textContent = "⏸ PAUSE";
+  cameraBtn.textContent = "PAUSE";
   cameraBtn.disabled    = false;
 
   window.addEventListener("deviceorientation", handleOrientation, true);
@@ -141,8 +141,8 @@ function handleOrientation(e) {
   if (e.alpha !== null) phoneHeading = e.alpha;
   if (e.beta  !== null) phonePitch   = Math.min(90, Math.max(0, e.beta));
 
-  if (headingDbg) headingDbg.textContent = phoneHeading?.toFixed(1) ?? "—";
-  if (pitchDbg)   pitchDbg.textContent   = `${phonePitch?.toFixed(1) ?? "—"}° (β${e.beta?.toFixed(0) ?? "—"})`;
+  if (headingDbg) headingDbg.textContent = phoneHeading?.toFixed(1) ?? "-";
+  if (pitchDbg)   pitchDbg.textContent = `${phonePitch?.toFixed(1) ?? "-"} deg (b${e.beta?.toFixed(0) ?? "-"})`;
 }
 
 // ── Fetch aircraft ──────────────────────────────
@@ -321,20 +321,20 @@ function showTarget(ac, locked) {
   // Aircraft type line — show type code if available, else ICAO hex
   if (aircraftEl) {
     aircraftEl.textContent = ac.aircraftType
-      ? `${ac.aircraftType} · ${ac.icao24.toUpperCase()}`
+      ? `${ac.aircraftType} - ${ac.icao24.toUpperCase()}`
       : ac.icao24.toUpperCase();
   }
 
   if (altEl)  altEl.textContent  = ac.altFt.toLocaleString() + " ft";
-  if (speedEl) speedEl.textContent = ac.speedKts != null ? ac.speedKts + " kts" : "—";
+  if (speedEl) speedEl.textContent = ac.speedKts != null ? ac.speedKts + " kts" : "-";
   if (distEl) distEl.textContent  = distKm.toFixed(1) + " km";
 
   // Airline line
   if (routeEl) {
     const r = ac.airline;
     const airlineName = r?.airline
-      ? `${r.airline} · ${r.prefix}${r.flightNumber ?? ""}`
-      : (ac.callsign !== "N/A" ? ac.callsign : "—");
+      ? `${r.airline} - ${r.prefix}${r.flightNumber ?? ""}`
+      : (ac.callsign !== "N/A" ? ac.callsign : "-");
     routeEl.textContent = airlineName;
   }
 
@@ -345,11 +345,11 @@ function showTarget(ac, locked) {
     if (route?.origin && route?.destination) {
       const from = route.originCity      ? `${route.originCity} (${route.origin})`      : route.origin;
       const to   = route.destinationCity ? `${route.destinationCity} (${route.destination})` : route.destination;
-      originDestEl.textContent = `${from} → ${to}`;
+      originDestEl.textContent = `${from} to ${to}`;
     } else if (routePending.has(ac.callsign)) {
       originDestEl.textContent = "Looking up route…";
     } else {
-      originDestEl.textContent = "—";
+      originDestEl.textContent = "-";
     }
   }
 
@@ -358,7 +358,7 @@ function showTarget(ac, locked) {
     lockEl.style.color = locked ? "#00ff88" : "#7df9ff";
   }
 
-  if (locked) setStatus(`${ac.angularDeg.toFixed(1)}° — locked`);
+  if (locked) setStatus(`${ac.angularDeg.toFixed(1)}° - locked`);
 }
 
 function setStatus(msg) {
