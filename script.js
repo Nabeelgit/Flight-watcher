@@ -21,7 +21,6 @@ let lockedIcao   = null;
 let lastFetchAt  = null;
 let manualLock   = null;   // icao24 of hard-locked aircraft (user-selected)
 let nearbyList   = [];     // sorted by angular distance, for NEXT cycling
-let nearbyIndex  = 0;      // current index into nearbyList
 const routeCache   = new Map();   // callsign → {origin, destination, originCity, destinationCity}
 const routePending = new Set();    // callsigns currently being fetched
 
@@ -41,44 +40,28 @@ const lockEl     = document.getElementById("lock-label");
 const fetchDbg   = document.getElementById("dbg-fetch");
 const rawDbg     = document.getElementById("dbg-raw");
 const lockBtn    = document.getElementById("lock-btn");
-const nextBtn    = document.getElementById("next-btn");
 
 // ── Manual lock controls ───────────────────────
 lockBtn?.addEventListener("click", () => {
   if (!active || paused) return;
 
   if (manualLock) {
-    // Release manual lock → back to auto-scan
+    // Release — back to auto-scan
     manualLock = null;
-    nearbyIndex = 0;
     lockBtn.textContent = "⊕ LOCK TARGET";
     lockBtn.classList.remove("hard-locked");
     if (lockEl) { lockEl.textContent = "SCANNING"; lockEl.style.color = "#7df9ff"; }
     setStatus("Manual lock released — auto-scanning");
   } else {
-    // Hard-lock the current best candidate
-    const target = nearbyList[nearbyIndex] ?? nearbyList[0];
-    if (!target) return;
+    // Lock onto the current closest aircraft in nearbyList
+    const target = nearbyList[0];
+    if (!target) { setStatus("No aircraft to lock"); return; }
     manualLock = target.icao24;
-    lockBtn.textContent = "⊗ UNLOCK";
+    lockBtn.textContent = "⊗ LOCKED — TAP TO RELEASE";
     lockBtn.classList.add("hard-locked");
     showTarget(target, true);
     fetchRoute(target.callsign);
-    setStatus("Manually locked — tap UNLOCK to release");
   }
-});
-
-nextBtn?.addEventListener("click", () => {
-  if (!active || paused || nearbyList.length === 0) return;
-  // Release any manual lock first, then cycle to next nearest aircraft
-  manualLock = null;
-  lockBtn.textContent = "⊕ LOCK TARGET";
-  lockBtn.classList.remove("hard-locked");
-  nearbyIndex = (nearbyIndex + 1) % nearbyList.length;
-  const target = nearbyList[nearbyIndex];
-  lockedIcao = target.icao24;
-  showTarget(target, false);
-  setStatus(`Showing ${target.callsign} (${nearbyIndex + 1}/${nearbyList.length}) — tap LOCK to hold`);
 });
 
 // ── Entry point ────────────────────────────────
@@ -308,7 +291,7 @@ function matchAndDisplay() {
       const dH = angleDiff(phoneHeading, b);
       const dP = angleDiff(phonePitch, e);
       showTarget({ ...ac, bearing: b, elevation: e, angularDeg: Math.sqrt(dH*dH + dP*dP) }, true);
-      fetchRoute(ac.callsign);
+      if (!routeCache.has(ac.callsign)) fetchRoute(ac.callsign);
     }
     return;
   }

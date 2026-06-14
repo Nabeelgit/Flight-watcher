@@ -252,36 +252,37 @@ h1{
     }
 }
 
-/* ── Manual lock controls ─────────────────── */
+/* ── Manual lock button ───────────────────── */
 #manual-controls {
-    display: flex;
-    gap: 10px;
     margin-top: 18px;
 }
 
-#manual-controls button {
-    flex: 1;
+#lock-btn {
+    width: 100%;
     font-family: 'Orbitron', sans-serif;
-    font-size: .65rem;
-    letter-spacing: 2px;
-    padding: 10px 0;
+    font-size: .75rem;
+    letter-spacing: 3px;
+    padding: 14px 0;
     background: transparent;
-    border: 1px solid rgba(125,249,255,.35);
+    border: 1px solid #7df9ff;
     border-radius: 4px;
-    color: rgba(125,249,255,.7);
+    color: #7df9ff;
     cursor: pointer;
-    transition: .2s ease;
+    transition: .25s ease;
+    box-shadow:
+        0 0 10px rgba(125,249,255,.4),
+        inset 0 0 10px rgba(125,249,255,.1);
 }
 
-#manual-controls button:hover,
-#manual-controls button:active {
+#lock-btn:active {
     background: rgba(125,249,255,.08);
-    border-color: #7df9ff;
-    color: #7df9ff;
 }
 
 #lock-btn.hard-locked {
-    border-color: #00ff88;
-    color: #00ff88;
-    box-shadow: 0 0 8px rgba(0,255,136,.3);
+    border-color: #ff3b3b;
+    color: #ff3b3b;
+    box-shadow:
+        0 0 14px rgba(255,59,59,.6),
+        0 0 30px rgba(255,59,59,.3),
+        inset 0 0 10px rgba(255,59,59,.1);
 }
