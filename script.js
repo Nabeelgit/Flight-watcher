@@ -5,7 +5,6 @@
 const WORKER_URL         = "https://falling-star-4aca.nabeel30march.workers.dev";
 const LOCK_THRESHOLD_DEG = 20;
 const FETCH_INTERVAL_MS  = 15_000;
-const BBOX = { lamin: 25, lamax: 31, lomin: -87, lomax: -79 };
 
 // ── State ──────────────────────────────────────
 let userLat      = null;
@@ -101,7 +100,7 @@ async function fetchAircraft() {
   if (fetchDbg) fetchDbg.textContent = "fetching…";
 
   try {
-    const res  = await fetch(`${WORKER_URL}?${new URLSearchParams(BBOX)}`);
+    const res  = await fetch(`${WORKER_URL}?lat=${userLat.toFixed(5)}&lon=${userLon.toFixed(5)}`);
     if (!res.ok) { if (fetchDbg) fetchDbg.textContent = `HTTP ${res.status}`; return; }
 
     const data = await res.json();
