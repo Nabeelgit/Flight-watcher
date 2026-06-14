@@ -15,6 +15,7 @@ let aircraftList = [];
 let matchLoop    = null;
 let fetchTimer   = null;
 let active       = false;
+let paused       = false;
 let isFetching   = false;
 let lockedIcao   = null;
 let lastFetchAt  = null;
@@ -37,7 +38,27 @@ const rawDbg     = document.getElementById("dbg-raw");
 
 // ── Entry point ────────────────────────────────
 cameraBtn.addEventListener("click", async () => {
-  if (active) return;
+  // If already running — toggle pause
+  if (active) {
+    paused = !paused;
+    if (paused) {
+      clearInterval(matchLoop);
+      clearInterval(fetchTimer);
+      matchLoop = null;
+      fetchTimer = null;
+      cameraBtn.textContent = "RESUME RADAR";
+      cameraBtn.disabled = false;
+      if (lockEl) { lockEl.textContent = "PAUSED"; lockEl.style.color = "#7df9ff"; }
+      setStatus("Radar paused.");
+    } else {
+      fetchAircraft();
+      fetchTimer = setInterval(fetchAircraft, FETCH_INTERVAL_MS);
+      matchLoop  = setInterval(matchAndDisplay, 250);
+      cameraBtn.textContent = "PAUSE RADAR";
+      setStatus("Radar resumed.");
+    }
+    return;
+  }
   setStatus("Requesting permissions…");
 
   if (
@@ -74,8 +95,8 @@ cameraBtn.addEventListener("click", async () => {
 // ── Radar loop ─────────────────────────────────
 function startRadar() {
   active = true;
-  cameraBtn.textContent = "RADAR ACTIVE";
-  cameraBtn.disabled    = true;
+  cameraBtn.textContent = "PAUSE RADAR";
+  cameraBtn.disabled    = false;
 
   window.addEventListener("deviceorientation", handleOrientation, true);
 
