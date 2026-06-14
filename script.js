@@ -2,7 +2,7 @@
 //  Flight Watcher — script.js (v6)
 // ─────────────────────────────────────────────
 
-const WORKER_URL         = "https://flight-watcher.nabeel30march.workers.dev/";
+const WORKER_URL         = "https://flight-watcher.nabeel30march.workers.dev";
 const LOCK_THRESHOLD_DEG = 20;
 const FETCH_INTERVAL_MS  = 15_000;
 
