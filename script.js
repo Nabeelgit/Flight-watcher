@@ -2,7 +2,7 @@
 //  Flight Watcher — script.js (v6)
 // ─────────────────────────────────────────────
 
-const WORKER_URL         = "https://falling-star-4aca.nabeel30march.workers.dev";
+const WORKER_URL         = "https://flight-watcher.nabeel30march.workers.dev/";
 const LOCK_THRESHOLD_DEG = 20;
 const FETCH_INTERVAL_MS  = 15_000;
 
@@ -19,6 +19,8 @@ let paused       = false;
 let isFetching   = false;
 let lockedIcao   = null;
 let lastFetchAt  = null;
+const routeCache   = new Map();   // callsign → {origin, destination, originCity, destinationCity}
+const routePending = new Set();    // callsigns currently being fetched
 
 // ── DOM refs ────────────────────────────────────
 const cameraBtn  = document.getElementById("camera-btn");
@@ -169,6 +171,35 @@ function parseAircraft(a) {
   };
 }
 
+// ── On-demand route fetch ──────────────────────────
+async function fetchRoute(callsign) {
+  if (!callsign || callsign === "N/A") return;
+  if (routeCache.has(callsign)) return;   // already have it (even if null)
+  if (routePending.has(callsign)) return; // already in flight
+
+  routePending.add(callsign);
+  try {
+    const res  = await fetch(`${WORKER_URL}/route?callsign=${encodeURIComponent(callsign)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    routeCache.set(callsign, data);
+
+    // If this is still the locked aircraft, refresh display immediately
+    if (lockedIcao) {
+      const ac = aircraftList.find(a => a.icao24 === lockedIcao);
+      if (ac?.callsign === callsign) showTarget(
+        { ...ac,
+          bearing:    bearingTo(userLat, userLon, ac.lat, ac.lon),
+          elevation:  elevationTo(userLat, userLon, ac.altM, ac.lat, ac.lon),
+          angularDeg: 0 },
+        true
+      );
+    }
+  } catch { /* silent */ } finally {
+    routePending.delete(callsign);
+  }
+}
+
 // ── Matching engine ─────────────────────────────
 function matchAndDisplay() {
   if (phoneHeading === null || phonePitch === null) {
@@ -218,6 +249,7 @@ function matchAndDisplay() {
 
   if (best && bestDeg <= LOCK_THRESHOLD_DEG) {
     showTarget(best, true);
+    fetchRoute(best.callsign);   // non-blocking, cached
   } else {
     if (best) showTarget(best, false);
     setStatus(best
@@ -246,15 +278,27 @@ function showTarget(ac, locked) {
   if (speedEl) speedEl.textContent = ac.speedKts != null ? ac.speedKts + " kts" : "—";
   if (distEl) distEl.textContent  = distKm.toFixed(1) + " km";
 
-  // Route line — show airline name + flight number if we decoded it
+  // Airline line
   if (routeEl) {
     const r = ac.airline;
-    if (r?.airline && r?.flightNumber) {
-      routeEl.textContent = `${r.airline} · ${r.prefix}${r.flightNumber}`;
-    } else if (r?.airline) {
-      routeEl.textContent = r.airline;
+    const airlineName = r?.airline
+      ? `${r.airline} · ${r.prefix}${r.flightNumber ?? ""}`
+      : (ac.callsign !== "N/A" ? ac.callsign : "—");
+    routeEl.textContent = airlineName;
+  }
+
+  // Origin → destination line
+  const originDestEl = document.getElementById("val-origin-dest");
+  if (originDestEl) {
+    const route = routeCache.get(ac.callsign);
+    if (route?.origin && route?.destination) {
+      const from = route.originCity      ? `${route.originCity} (${route.origin})`      : route.origin;
+      const to   = route.destinationCity ? `${route.destinationCity} (${route.destination})` : route.destination;
+      originDestEl.textContent = `${from} → ${to}`;
+    } else if (routePending.has(ac.callsign)) {
+      originDestEl.textContent = "Looking up route…";
     } else {
-      routeEl.textContent = ac.callsign !== "N/A" ? ac.callsign : "—";
+      originDestEl.textContent = "—";
     }
   }
 
