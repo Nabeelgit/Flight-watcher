@@ -87,7 +87,7 @@ function startRadar() {
 // ── Sensor handler ─────────────────────────────
 function handleOrientation(e) {
   if (e.alpha !== null) phoneHeading = e.alpha;
-  if (e.beta  !== null) phonePitch   = Math.min(90, Math.max(0, 90 - e.beta));
+  if (e.beta  !== null) phonePitch   = Math.min(90, Math.max(0, e.beta));
 
   if (headingDbg) headingDbg.textContent = phoneHeading?.toFixed(1) ?? "—";
   if (pitchDbg)   pitchDbg.textContent   = `${phonePitch?.toFixed(1) ?? "—"}° (β${e.beta?.toFixed(0) ?? "—"})`;
