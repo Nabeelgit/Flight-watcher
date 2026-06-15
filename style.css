@@ -46,7 +46,7 @@ h1{
 }
 
 /* ── Button ────────────────────────────── */
-#camera-btn{
+#radar-btn{
     font-family:'Orbitron', sans-serif;
     font-size:1rem;
 
@@ -66,14 +66,14 @@ h1{
         inset 0 0 10px rgba(125,249,255,.2);
 }
 
-#camera-btn:hover{
+#radar-btn:hover{
     background:rgba(125,249,255,.08);
     box-shadow:
         0 0 20px rgba(125,249,255,.7),
         0 0 40px rgba(125,249,255,.3);
 }
 
-#camera-btn:disabled{
+#radar-btn:disabled{
     opacity:.4;
     cursor:default;
 }
