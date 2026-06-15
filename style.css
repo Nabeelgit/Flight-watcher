@@ -286,3 +286,10 @@ h1{
         0 0 30px rgba(255,59,59,.3),
         inset 0 0 10px rgba(255,59,59,.1);
 }
+
+/* ── Secondary data lines (hex, minor info) ── */
+.data-line.secondary {
+    opacity: .45;
+    font-size: .7rem;
+    margin-top: -6px;
+}
