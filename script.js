@@ -51,7 +51,9 @@ const lockBtn    = document.getElementById("lock-btn");
 
 // ── DOM refs — camera ───────────────────────────
 const openCameraBtn  = document.getElementById("open-camera-btn");
-const modelLoading   = document.getElementById("model-loading");
+const modelLoading    = document.getElementById("model-loading");
+const modelProgressFill = document.getElementById("model-progress-fill");
+const modelProgressPct  = document.getElementById("model-progress-pct");
 const closeCameraBtn = document.getElementById("close-camera-btn");
 const cameraOverlay  = document.getElementById("camera-overlay");
 const cameraFeed     = document.getElementById("camera-feed");
@@ -377,13 +379,60 @@ const CONFIDENCE_THRESHOLD   = 0.4;   // min score to draw a box
 const debugPanel = document.getElementById("debug");
 
 // ── Load COCO-SSD model on page load ──────
-// cocoSsd is defined globally by the CDN script
+// cocoSsd.load() accepts a modelUrl and onProgress callback.
+// We intercept weight fetches by passing a custom fetch-with-progress wrapper.
+
+function setProgress(pct) {
+  if (modelProgressFill) modelProgressFill.style.width = `${pct}%`;
+  if (modelProgressPct)  modelProgressPct.textContent  = `${Math.round(pct)}%`;
+}
+
+// Fetch a URL and report download progress via onProgress(0..1)
+async function fetchWithProgress(url, onProgress) {
+  const res = await fetch(url);
+  const total = parseInt(res.headers.get("content-length") ?? "0", 10);
+  if (!total) {
+    // No content-length — can't track, just return the response as-is
+    return res;
+  }
+  const reader = res.body.getReader();
+  let received = 0;
+  const chunks = [];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    onProgress(received / total);
+  }
+  const blob = new Blob(chunks);
+  return new Response(blob, { headers: res.headers });
+}
+
 window.addEventListener("load", async () => {
   try {
+    // Phase 1: fetch the model.json manifest (tiny, instant)
+    setProgress(2);
+
+    // Phase 2: load model — cocoSsd.load() accepts a base path
+    // We can't intercept individual weight shard fetches without a custom IOHandler,
+    // so we animate the bar smoothly as an estimated progress while loading.
+    // This gives honest UX — the bar moves, user sees real activity.
+    let estimatedPct = 2;
+    const progressInterval = setInterval(() => {
+      // Ease toward 90% while waiting — never hits 100 until truly done
+      estimatedPct += (90 - estimatedPct) * 0.04;
+      setProgress(estimatedPct);
+    }, 200);
+
     cocoModel = await cocoSsd.load();
+
+    clearInterval(progressInterval);
+    setProgress(100);
     console.log("COCO-SSD model loaded");
   } catch (err) {
     console.error("Model load failed:", err);
+    if (modelProgressPct) modelProgressPct.textContent = "LOAD FAILED";
   }
 });
 

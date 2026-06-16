@@ -425,3 +425,36 @@ h1{
     color: #7df9ff;
     text-shadow: 0 0 10px rgba(125,249,255,0.5);
 }
+
+/* ── Model progress bar ───────────────── */
+#model-progress-track {
+    width: min(280px, 70vw);
+    height: 2px;
+    background: rgba(125,249,255,0.15);
+    border-radius: 2px;
+    margin-top: 20px;
+    overflow: hidden;
+}
+
+#model-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: #7df9ff;
+    box-shadow: 0 0 8px rgba(125,249,255,0.8);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+}
+
+#model-progress-pct {
+    font-family: 'Orbitron', sans-serif;
+    font-size: .65rem;
+    letter-spacing: 3px;
+    color: rgba(125,249,255,0.5);
+    margin-top: 10px;
+}
+
+#model-loading {
+    flex-direction: column;
+    gap: 0;
+    align-items: center;
+}
