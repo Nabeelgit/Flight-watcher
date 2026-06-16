@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────
-//  Flight Watcher — script.js (v6)
+//  Flight Watcher — script.js
 // ─────────────────────────────────────────────
 
 const WORKER_URL         = "https://flight-watcher.nabeel30march.workers.dev";
@@ -10,7 +10,7 @@ const FETCH_INTERVAL_MS  = 15_000;
 function resolveAircraftType(code) {
   if (!code) return null;
   const entry = AIRCRAFT_TYPES[code.toUpperCase()];
-  if (!entry) return code;   // unknown — return raw code as fallback
+  if (!entry) return code;
   return `${entry.m} ${entry.o}`;
 }
 
@@ -27,13 +27,13 @@ let paused       = false;
 let isFetching   = false;
 let lockedIcao   = null;
 let lastFetchAt  = null;
-let manualLock   = null;   // icao24 of hard-locked aircraft (user-selected)
-let nearbyList   = [];     // sorted by angular distance, for NEXT cycling
-const routeCache   = new Map();   // callsign → {origin, destination, originCity, destinationCity}
-const routePending = new Set();    // callsigns currently being fetched
+let manualLock   = null;
+let nearbyList   = [];
+const routeCache   = new Map();
+const routePending = new Set();
 
-// ── DOM refs ────────────────────────────────────
-const radarBtn  = document.getElementById("radar-btn");
+// ── DOM refs — radar ────────────────────────────
+const radarBtn   = document.getElementById("radar-btn");
 const statusEl   = document.getElementById("status");
 const flightEl   = document.getElementById("val-flight");
 const aircraftEl = document.getElementById("val-aircraft");
@@ -49,19 +49,25 @@ const fetchDbg   = document.getElementById("dbg-fetch");
 const rawDbg     = document.getElementById("dbg-raw");
 const lockBtn    = document.getElementById("lock-btn");
 
+// ── DOM refs — camera ───────────────────────────
+const openCameraBtn  = document.getElementById("open-camera-btn");
+const closeCameraBtn = document.getElementById("close-camera-btn");
+const cameraOverlay  = document.getElementById("camera-overlay");
+const cameraFeed     = document.getElementById("camera-feed");
+const cameraBarHint  = document.getElementById("camera-bar-hint");
+const photoStrip     = document.getElementById("photo-strip");
+
 // ── Manual lock controls ───────────────────────
 lockBtn?.addEventListener("click", () => {
   if (!active || paused) return;
 
   if (manualLock) {
-    // Release — back to auto-scan
     manualLock = null;
     lockBtn.textContent = "LOCK TARGET";
     lockBtn.classList.remove("hard-locked");
     if (lockEl) { lockEl.textContent = "SCANNING"; lockEl.style.color = "#7df9ff"; }
     setStatus("Manual lock released - auto-scanning");
   } else {
-    // Lock onto the current closest aircraft in nearbyList
     const target = nearbyList[0];
     if (!target) { setStatus("No aircraft to lock"); return; }
     manualLock = target.icao24;
@@ -72,9 +78,8 @@ lockBtn?.addEventListener("click", () => {
   }
 });
 
-// ── Entry point ────────────────────────────────
+// ── Radar entry point ──────────────────────────
 radarBtn.addEventListener("click", async () => {
-  // If already running — toggle pause
   if (active) {
     paused = !paused;
     if (paused) {
@@ -98,6 +103,7 @@ radarBtn.addEventListener("click", async () => {
     }
     return;
   }
+
   setStatus("Requesting permissions…");
 
   if (
@@ -135,10 +141,7 @@ radarBtn.addEventListener("click", async () => {
 function startRadar() {
   active = true;
   radarBtn.textContent = "PAUSE";
-  radarBtn.disabled    = false;
-
   window.addEventListener("deviceorientation", handleOrientation, true);
-
   fetchAircraft();
   fetchTimer = setInterval(fetchAircraft, FETCH_INTERVAL_MS);
   matchLoop  = setInterval(matchAndDisplay, 250);
@@ -148,9 +151,8 @@ function startRadar() {
 function handleOrientation(e) {
   if (e.alpha !== null) phoneHeading = e.alpha;
   if (e.beta  !== null) phonePitch   = Math.min(90, Math.max(0, e.beta));
-
   if (headingDbg) headingDbg.textContent = phoneHeading?.toFixed(1) ?? "-";
-  if (pitchDbg)   pitchDbg.textContent = `${phonePitch?.toFixed(1) ?? "-"} deg (b${e.beta?.toFixed(0) ?? "-"})`;
+  if (pitchDbg)   pitchDbg.textContent   = `${phonePitch?.toFixed(1) ?? "-"} deg (b${e.beta?.toFixed(0) ?? "-"})`;
 }
 
 // ── Fetch aircraft ──────────────────────────────
@@ -158,30 +160,17 @@ async function fetchAircraft() {
   if (isFetching) return;
   isFetching = true;
   if (fetchDbg) fetchDbg.textContent = "fetching…";
-
   try {
-    const res  = await fetch(`${WORKER_URL}?lat=${userLat.toFixed(5)}&lon=${userLon.toFixed(5)}`);
+    const res = await fetch(`${WORKER_URL}?lat=${userLat.toFixed(5)}&lon=${userLon.toFixed(5)}`);
     if (!res.ok) { if (fetchDbg) fetchDbg.textContent = `HTTP ${res.status}`; return; }
-
     const data = await res.json();
     if (rawDbg) rawDbg.textContent = JSON.stringify(data).slice(0, 120);
-
-    if (data.error) {
-      if (fetchDbg) fetchDbg.textContent = `ERR: ${data.error}`;
-      return;
-    }
-
-    if (!data.aircraft?.length) {
-      if (fetchDbg) fetchDbg.textContent = `empty (total raw=${data.total ?? "?"})`;
-      return;   // keep stale list
-    }
-
+    if (data.error) { if (fetchDbg) fetchDbg.textContent = `ERR: ${data.error}`; return; }
+    if (!data.aircraft?.length) { if (fetchDbg) fetchDbg.textContent = `empty (total=${data.total ?? "?"})`; return; }
     aircraftList = data.aircraft.map(parseAircraft).filter(Boolean);
     lastFetchAt  = Date.now();
-
     if (countDbg) countDbg.textContent = `${aircraftList.length} / ${data.total ?? "?"}`;
     if (fetchDbg) fetchDbg.textContent = `OK ${new Date().toLocaleTimeString()}`;
-
   } catch (err) {
     if (fetchDbg) fetchDbg.textContent = `ERR: ${err.message}`;
   } finally {
@@ -192,34 +181,31 @@ async function fetchAircraft() {
 function parseAircraft(a) {
   if (a.lat == null || a.lon == null || a.alt == null || a.alt < 100) return null;
   return {
-    icao24:       a.icao24,
-    callsign:     a.callsign?.trim() || "N/A",
-    lat:          a.lat,
-    lon:          a.lon,
-    altM:         a.alt,
-    altFt:        Math.round(a.alt * 3.28084),
-    speedKts:     a.speed ? Math.round(a.speed) : null,
-    heading:      a.heading,
-    aircraftType: a.aircraftType ?? null,
-    aircraftLabel: resolveAircraftType(a.aircraftType),  // "Boeing 737-800"
-    airline:      a.airline ?? null,        // { airline, flightNumber, prefix }
+    icao24:        a.icao24,
+    callsign:      a.callsign?.trim() || "N/A",
+    lat:           a.lat,
+    lon:           a.lon,
+    altM:          a.alt,
+    altFt:         Math.round(a.alt * 3.28084),
+    speedKts:      a.speed ? Math.round(a.speed) : null,
+    heading:       a.heading,
+    aircraftType:  a.aircraftType ?? null,
+    aircraftLabel: resolveAircraftType(a.aircraftType),
+    airline:       a.airline ?? null,
   };
 }
 
-// ── On-demand route fetch ──────────────────────────
+// ── On-demand route fetch ──────────────────────
 async function fetchRoute(callsign) {
   if (!callsign || callsign === "N/A") return;
-  if (routeCache.has(callsign)) return;   // already have it (even if null)
-  if (routePending.has(callsign)) return; // already in flight
-
+  if (routeCache.has(callsign)) return;
+  if (routePending.has(callsign)) return;
   routePending.add(callsign);
   try {
     const res  = await fetch(`${WORKER_URL}/route?callsign=${encodeURIComponent(callsign)}`);
     if (!res.ok) return;
     const data = await res.json();
     routeCache.set(callsign, data);
-
-    // If this is still the locked aircraft, refresh display immediately
     if (lockedIcao) {
       const ac = aircraftList.find(a => a.icao24 === lockedIcao);
       if (ac?.callsign === callsign) showTarget(
@@ -243,9 +229,7 @@ function matchAndDisplay() {
   }
   if (!userLat || !userLon) return;
   if (!aircraftList.length) {
-    const age = lastFetchAt
-      ? `Last data: ${Math.round((Date.now() - lastFetchAt) / 1000)}s ago`
-      : "No data yet";
+    const age = lastFetchAt ? `Last data: ${Math.round((Date.now() - lastFetchAt) / 1000)}s ago` : "No data yet";
     setStatus(`No aircraft. ${age}`);
     return;
   }
@@ -259,44 +243,35 @@ function matchAndDisplay() {
     const dH  = angleDiff(phoneHeading, bearing);
     const dP  = angleDiff(phonePitch,   elevation);
     const deg = Math.sqrt(dH * dH + dP * dP);
-
-    if (deg < bestDeg) {
-      bestDeg = deg;
-      best = { ...ac, bearing, elevation, angularDeg: deg };
-    }
+    if (deg < bestDeg) { bestDeg = deg; best = { ...ac, bearing, elevation, angularDeg: deg }; }
   }
 
-  // Hysteresis — require 5° improvement to break existing lock
+  // Hysteresis
   if (lockedIcao && best?.icao24 !== lockedIcao) {
     const cur = aircraftList.find(a => a.icao24 === lockedIcao);
     if (cur) {
       const cb   = bearingTo(userLat, userLon, cur.lat, cur.lon);
       const ce   = elevationTo(userLat, userLon, cur.altM, cur.lat, cur.lon);
       const cdeg = Math.sqrt(angleDiff(phoneHeading, cb) ** 2 + angleDiff(phonePitch, ce) ** 2);
-      if (best.angularDeg > cdeg - 5) {
-        best    = { ...cur, bearing: cb, elevation: ce, angularDeg: cdeg };
-        bestDeg = cdeg;
-      }
+      if (best.angularDeg > cdeg - 5) { best = { ...cur, bearing: cb, elevation: ce, angularDeg: cdeg }; bestDeg = cdeg; }
     }
   }
 
-  // Keep nearbyList sorted by angular distance for NEXT cycling
   nearbyList = aircraftList
     .map(ac => {
-      const b = bearingTo(userLat, userLon, ac.lat, ac.lon);
-      const e = elevationTo(userLat, userLon, ac.altM, ac.lat, ac.lon);
+      const b  = bearingTo(userLat, userLon, ac.lat, ac.lon);
+      const e  = elevationTo(userLat, userLon, ac.altM, ac.lat, ac.lon);
       const dH = angleDiff(phoneHeading, b);
       const dP = angleDiff(phonePitch, e);
       return { ...ac, bearing: b, elevation: e, angularDeg: Math.sqrt(dH*dH + dP*dP) };
     })
     .sort((a, b) => a.angularDeg - b.angularDeg);
 
-  // If user has manually locked, always show that aircraft
   if (manualLock) {
     const ac = aircraftList.find(a => a.icao24 === manualLock);
     if (ac) {
-      const b = bearingTo(userLat, userLon, ac.lat, ac.lon);
-      const e = elevationTo(userLat, userLon, ac.altM, ac.lat, ac.lon);
+      const b  = bearingTo(userLat, userLon, ac.lat, ac.lon);
+      const e  = elevationTo(userLat, userLon, ac.altM, ac.lat, ac.lon);
       const dH = angleDiff(phoneHeading, b);
       const dP = angleDiff(phonePitch, e);
       showTarget({ ...ac, bearing: b, elevation: e, angularDeg: Math.sqrt(dH*dH + dP*dP) }, true);
@@ -312,10 +287,7 @@ function matchAndDisplay() {
     fetchRoute(best.callsign);
   } else {
     if (best) showTarget(best, false);
-    setStatus(best
-      ? `Scanning… ${best.callsign} ${bestDeg.toFixed(1)}° off-axis`
-      : "No match found"
-    );
+    setStatus(best ? `Scanning… ${best.callsign} ${bestDeg.toFixed(1)} deg off-axis` : "No match found");
     if (lockEl) { lockEl.textContent = "SCANNING"; lockEl.style.color = "#7df9ff"; }
   }
 }
@@ -323,31 +295,21 @@ function matchAndDisplay() {
 // ── Display ─────────────────────────────────────
 function showTarget(ac, locked) {
   const distKm = haversineKm(userLat, userLon, ac.lat, ac.lon);
-
-  // Flight ID line
-  if (flightEl) flightEl.textContent = ac.callsign;
-
-  // Aircraft type — show full manufacturer + model if known
-  if (aircraftEl) {
-    aircraftEl.textContent = ac.aircraftLabel ?? ac.aircraftType ?? ac.icao24.toUpperCase();
-  }
+  if (flightEl)   flightEl.textContent   = ac.callsign;
+  if (aircraftEl) aircraftEl.textContent = ac.aircraftLabel ?? ac.aircraftType ?? ac.icao24.toUpperCase();
   const hexEl = document.getElementById("val-hex");
   if (hexEl) hexEl.textContent = ac.icao24.toUpperCase();
-
-  if (altEl)  altEl.textContent  = ac.altFt.toLocaleString() + " ft";
+  if (altEl)   altEl.textContent   = ac.altFt.toLocaleString() + " ft";
   if (speedEl) speedEl.textContent = ac.speedKts != null ? ac.speedKts + " kts" : "-";
-  if (distEl) distEl.textContent  = distKm.toFixed(1) + " km";
+  if (distEl)  distEl.textContent  = distKm.toFixed(1) + " km";
 
-  // Airline line
   if (routeEl) {
     const r = ac.airline;
-    const airlineName = r?.airline
+    routeEl.textContent = r?.airline
       ? `${r.airline} - ${r.prefix}${r.flightNumber ?? ""}`
       : (ac.callsign !== "N/A" ? ac.callsign : "-");
-    routeEl.textContent = airlineName;
   }
 
-  // Origin → destination line
   const originDestEl = document.getElementById("val-origin-dest");
   if (originDestEl) {
     const route = routeCache.get(ac.callsign);
@@ -366,7 +328,6 @@ function showTarget(ac, locked) {
     lockEl.textContent = locked ? "TARGET LOCKED" : "SCANNING";
     lockEl.style.color = locked ? "#00ff88" : "#7df9ff";
   }
-
   if (locked) setStatus(`${ac.angularDeg.toFixed(1)} deg - locked`);
 }
 
@@ -402,3 +363,33 @@ function angleDiff(a, b) {
 
 const toRad = d => d * Math.PI / 180;
 const toDeg = r => r * 180 / Math.PI;
+
+// ── Camera mode ─────────────────────────────────
+let cameraStream = null;
+
+const debugPanel = document.getElementById("debug");
+
+openCameraBtn?.addEventListener("click", async () => {
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment" },
+      audio: false,
+    });
+    cameraFeed.srcObject = cameraStream;
+  } catch (err) {
+    alert("Camera access denied: " + err.message);
+    return;
+  }
+  cameraOverlay.classList.add("active");
+  debugPanel?.classList.add("hidden");
+});
+
+closeCameraBtn?.addEventListener("click", () => {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(t => t.stop());
+    cameraStream = null;
+    cameraFeed.srcObject = null;
+  }
+  cameraOverlay.classList.remove("active");
+  debugPanel?.classList.remove("hidden");
+});

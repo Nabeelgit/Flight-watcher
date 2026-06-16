@@ -20,7 +20,10 @@
 
         <h1>FLIGHT WATCHER</h1>
 
-        <button id="radar-btn">ACCESS RADAR</button>
+        <div class="top-buttons">
+            <button id="radar-btn">ACCESS RADAR</button>
+            <button id="open-camera-btn">CAMERA</button>
+        </div>
 
         <p id="status" class="status-line"></p>
 
@@ -30,8 +33,8 @@
                 <span id="lock-label">STANDBY</span>
             </div>
 
-            <div class="route-display" id="val-route">— · —</div>
-            <div class="route-display" id="val-origin-dest" style="font-size:.85rem; opacity:.8;">—</div>
+            <div class="route-display" id="val-route">---</div>
+            <div class="route-display" id="val-origin-dest" style="font-size:.85rem; opacity:.8;">---</div>
 
             <div class="data-line">
                 <span>Flight</span>
@@ -65,35 +68,57 @@
 
     </div>
 
-    <!-- ── Debug HUD — fixed to bottom of screen, tap to collapse ── -->
+    <!-- ══ CAMERA OVERLAY ══════════════════════════════════════════════════ -->
+    <div id="camera-overlay">
+
+        <!-- Live feed -->
+        <video id="camera-feed" autoplay playsinline muted></video>
+
+        <!-- Future: detection canvas -->
+        <canvas id="detection-canvas"></canvas>
+
+        <!-- X — top right -->
+        <button id="close-camera-btn">X</button>
+
+        <!-- Shutter — floats above the image bar -->
+        <button id="shutter-btn"></button>
+
+        <!-- Image bar — fixed to bottom -->
+        <div id="camera-bar">
+            <p id="camera-bar-hint">Images taken will appear here</p>
+            <div id="photo-strip"></div>
+        </div>
+
+    </div>
+
+    <!-- ── Debug HUD ── -->
     <div id="debug" class="collapsed">
         <div id="debug-toggle">DEBUG</div>
         <div class="debug-rows">
             <div class="debug-row">
                 <span>Heading</span>
-                <span id="dbg-heading">—</span>
+                <span id="dbg-heading">-</span>
             </div>
             <div class="debug-row">
-                <span>Pitch (β)</span>
-                <span id="dbg-pitch">—</span>
+                <span>Pitch (b)</span>
+                <span id="dbg-pitch">-</span>
             </div>
             <div class="debug-row">
                 <span>Aircraft</span>
-                <span id="dbg-count">—</span>
+                <span id="dbg-count">-</span>
             </div>
             <div class="debug-row">
                 <span>Last fetch</span>
-                <span id="dbg-fetch">—</span>
+                <span id="dbg-fetch">-</span>
             </div>
             <div class="debug-row">
                 <span>Worker resp</span>
-                <span id="dbg-raw">—</span>
+                <span id="dbg-raw">-</span>
             </div>
         </div>
     </div>
 
     <script>
-        // Tap debug panel to collapse/expand
         document.getElementById("debug").addEventListener("click", () => {
             document.getElementById("debug").classList.toggle("collapsed");
         });
