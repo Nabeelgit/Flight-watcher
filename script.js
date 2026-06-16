@@ -51,6 +51,7 @@ const lockBtn    = document.getElementById("lock-btn");
 
 // ── DOM refs — camera ───────────────────────────
 const openCameraBtn  = document.getElementById("open-camera-btn");
+const modelLoading   = document.getElementById("model-loading");
 const closeCameraBtn = document.getElementById("close-camera-btn");
 const cameraOverlay  = document.getElementById("camera-overlay");
 const cameraFeed     = document.getElementById("camera-feed");
@@ -365,11 +366,46 @@ const toRad = d => d * Math.PI / 180;
 const toDeg = r => r * 180 / Math.PI;
 
 // ── Camera mode ─────────────────────────────────
-let cameraStream = null;
+let cameraStream     = null;
+let cocoModel        = null;   // loaded once at startup
+let detectionRunning = false;  // prevents overlapping inference calls
+let detectionFrame   = null;   // requestAnimationFrame handle
+
+const DETECTION_INTERVAL_MS  = 250;   // run inference every 250ms
+const CONFIDENCE_THRESHOLD   = 0.4;   // min score to draw a box
 
 const debugPanel = document.getElementById("debug");
 
+// ── Load COCO-SSD model on page load ──────
+// cocoSsd is defined globally by the CDN script
+window.addEventListener("load", async () => {
+  try {
+    cocoModel = await cocoSsd.load();
+    console.log("COCO-SSD model loaded");
+  } catch (err) {
+    console.error("Model load failed:", err);
+  }
+});
+
+// ── Open camera ────────────────────────────
 openCameraBtn?.addEventListener("click", async () => {
+  // Show overlay immediately with loading screen
+  cameraOverlay.classList.add("active");
+  debugPanel?.classList.add("hidden");
+
+  // If model isn't ready yet, show loading screen until it is
+  if (!cocoModel) {
+    modelLoading?.classList.remove("hidden");
+    // Poll until model loads
+    await new Promise(resolve => {
+      const check = setInterval(() => {
+        if (cocoModel) { clearInterval(check); resolve(); }
+      }, 200);
+    });
+  }
+  modelLoading?.classList.add("hidden");
+
+  // Start camera stream
   try {
     cameraStream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "environment" },
@@ -378,13 +414,18 @@ openCameraBtn?.addEventListener("click", async () => {
     cameraFeed.srcObject = cameraStream;
   } catch (err) {
     alert("Camera access denied: " + err.message);
+    cameraOverlay.classList.remove("active");
+    debugPanel?.classList.remove("hidden");
     return;
   }
-  cameraOverlay.classList.add("active");
-  debugPanel?.classList.add("hidden");
+
+  // Wait for video to be playing before starting detection
+  cameraFeed.addEventListener("playing", startDetection, { once: true });
 });
 
+// ── Close camera ───────────────────────────
 closeCameraBtn?.addEventListener("click", () => {
+  stopDetection();
   if (cameraStream) {
     cameraStream.getTracks().forEach(t => t.stop());
     cameraStream = null;
@@ -392,4 +433,64 @@ closeCameraBtn?.addEventListener("click", () => {
   }
   cameraOverlay.classList.remove("active");
   debugPanel?.classList.remove("hidden");
+  // Reset loading screen for next open
+  modelLoading?.classList.remove("hidden");
 });
+
+// ── Detection loop ─────────────────────────
+function startDetection() {
+  const canvas  = document.getElementById("detection-canvas");
+  const ctx     = canvas.getContext("2d");
+  let lastRun   = 0;
+
+  async function loop(timestamp) {
+    detectionFrame = requestAnimationFrame(loop);
+
+    // Size canvas to match video every frame (handles orientation changes)
+    if (canvas.width  !== cameraFeed.videoWidth ||
+        canvas.height !== cameraFeed.videoHeight) {
+      canvas.width  = cameraFeed.videoWidth;
+      canvas.height = cameraFeed.videoHeight;
+    }
+
+    // Throttle inference
+    if (timestamp - lastRun < DETECTION_INTERVAL_MS) return;
+    if (detectionRunning) return;
+    lastRun = timestamp;
+
+    detectionRunning = true;
+    try {
+      const predictions = await cocoModel.detect(cameraFeed);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const planes = predictions.filter(
+        p => p.class === "airplane" && p.score >= CONFIDENCE_THRESHOLD
+      );
+
+      for (const p of planes) {
+        const [x, y, w, h] = p.bbox;
+        // Cyan glowing box matching the app's colour scheme
+        ctx.strokeStyle = "#7df9ff";
+        ctx.lineWidth   = 2;
+        ctx.shadowColor = "#7df9ff";
+        ctx.shadowBlur  = 8;
+        ctx.strokeRect(x, y, w, h);
+        ctx.shadowBlur  = 0;
+      }
+    } catch { /* frame error — skip */ } finally {
+      detectionRunning = false;
+    }
+  }
+
+  detectionFrame = requestAnimationFrame(loop);
+}
+
+function stopDetection() {
+  if (detectionFrame) {
+    cancelAnimationFrame(detectionFrame);
+    detectionFrame = null;
+  }
+  const canvas = document.getElementById("detection-canvas");
+  const ctx    = canvas?.getContext("2d");
+  ctx?.clearRect(0, 0, canvas.width, canvas.height);
+}

@@ -402,3 +402,26 @@ h1{
     transform:translateX(-50%) scale(0.92);
     background:rgba(255,255,255,0.85);
 }
+
+/* ── Model loading screen ─────────────── */
+#model-loading {
+    position: absolute;
+    inset: 0;
+    z-index: 230;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#model-loading.hidden {
+    display: none;
+}
+
+#model-loading-text {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1rem;
+    letter-spacing: 4px;
+    color: #7df9ff;
+    text-shadow: 0 0 10px rgba(125,249,255,0.5);
+}
