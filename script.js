@@ -128,6 +128,9 @@ radarBtn.addEventListener("click", async () => {
   if (!navigator.geolocation) { setStatus("Geolocation not supported."); return; }
 
   setStatus("Getting location…");
+
+  // Try high accuracy first, fall back to low accuracy if it fails
+  // Some iOS versions deny enableHighAccuracy even when location is allowed
   navigator.geolocation.getCurrentPosition(
     pos => {
       userLat = pos.coords.latitude;
@@ -135,8 +138,25 @@ radarBtn.addEventListener("click", async () => {
       setStatus("Location acquired. Fetching aircraft…");
       startRadar();
     },
-    err => setStatus("Location error: " + err.message),
-    { enableHighAccuracy: true, timeout: 10_000 }
+    err => {
+      if (err.code === err.PERMISSION_DENIED) {
+        setStatus("Location denied. Check Settings > Privacy > Location Services > Safari.");
+        return;
+      }
+      // High accuracy failed — retry with low accuracy
+      setStatus("Retrying location…");
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          userLat = pos.coords.latitude;
+          userLon = pos.coords.longitude;
+          setStatus("Location acquired. Fetching aircraft…");
+          startRadar();
+        },
+        err2 => setStatus("Location error: " + err2.message),
+        { enableHighAccuracy: false, timeout: 10_000 }
+      );
+    },
+    { enableHighAccuracy: true, timeout: 8_000 }
   );
 });
 
@@ -209,6 +229,10 @@ async function fetchRoute(callsign) {
     if (!res.ok) return;
     const data = await res.json();
     routeCache.set(callsign, data);
+    // If this callsign is currently showing in camera info, refresh it
+    if (cameraMatchedAc?.callsign === callsign && cameraInfoEl && !cameraInfoEl.classList.contains("hidden")) {
+      showCameraInfo(cameraMatchedAc);
+    }
     if (lockedIcao) {
       const ac = aircraftList.find(a => a.icao24 === lockedIcao);
       if (ac?.callsign === callsign) showTarget(
@@ -369,6 +393,8 @@ const toDeg = r => r * 180 / Math.PI;
 
 // ── Camera mode ─────────────────────────────────
 let cameraStream     = null;
+let infoSource       = null;   // null | "manual" | "detection"
+let cameraMatchedAc  = null;   // aircraft currently shown in camera info
 let cocoModel        = null;   // loaded once at startup
 let detectionRunning = false;  // prevents overlapping inference calls
 let detectionFrame   = null;   // requestAnimationFrame handle
@@ -377,6 +403,83 @@ const DETECTION_INTERVAL_MS  = 250;   // run inference every 250ms
 const CONFIDENCE_THRESHOLD   = 0.4;   // min score to draw a box
 
 const debugPanel = document.getElementById("debug");
+
+// ── Camera match helpers ───────────────────
+
+// Find closest aircraft to current phone bearing/pitch
+function matchBestAircraft() {
+  if (!aircraftList.length || phoneHeading === null || phonePitch === null) return null;
+  if (!userLat || !userLon) return null;
+
+  let best    = null;
+  let bestDeg = Infinity;
+
+  for (const ac of aircraftList) {
+    const bearing   = bearingTo(userLat, userLon, ac.lat, ac.lon);
+    const elevation = elevationTo(userLat, userLon, ac.altM, ac.lat, ac.lon);
+    const dH  = angleDiff(phoneHeading, bearing);
+    const dP  = angleDiff(phonePitch,   elevation);
+    const deg = Math.sqrt(dH * dH + dP * dP);
+    if (deg < bestDeg) { bestDeg = deg; best = { ...ac, bearing, elevation, angularDeg: deg }; }
+  }
+  return best;
+}
+
+function showCameraInfo(ac) {
+  cameraMatchedAc = ac;
+
+  document.getElementById("cam-aircraft").textContent =
+    ac.aircraftLabel ?? ac.aircraftType ?? ac.icao24.toUpperCase();
+
+  const r = ac.airline;
+  document.getElementById("cam-airline").textContent = r?.airline
+    ? `${r.airline} - ${r.prefix}${r.flightNumber ?? ""}`
+    : (ac.callsign !== "N/A" ? ac.callsign : "-");
+
+  const route = routeCache.get(ac.callsign);
+  if (route?.origin && route?.destination) {
+    const from = route.originCity      ? `${route.originCity} (${route.origin})`      : route.origin;
+    const to   = route.destinationCity ? `${route.destinationCity} (${route.destination})` : route.destination;
+    document.getElementById("cam-route").textContent = `${from} to ${to}`;
+  } else if (routePending.has(ac.callsign)) {
+    document.getElementById("cam-route").textContent = "Looking up route...";
+  } else {
+    document.getElementById("cam-route").textContent = "-";
+  }
+
+  document.getElementById("cam-speed").textContent =
+    ac.speedKts != null ? `${ac.speedKts} kts` : "-";
+
+  cameraInfoEl?.classList.remove("hidden");
+}
+
+function hideCameraInfo() {
+  cameraMatchedAc = null;
+  cameraInfoEl?.classList.add("hidden");
+}
+
+// ── Identify button ─────────────────────────
+identifyBtn?.addEventListener("click", () => {
+  // If detection is driving the info, don't interfere
+  if (infoSource === "detection") return;
+
+  // Toggle off if already showing manual info
+  if (infoSource === "manual") {
+    infoSource = null;
+    identifyBtn.classList.remove("active");
+    hideCameraInfo();
+    return;
+  }
+
+  // Match and show
+  const ac = matchBestAircraft();
+  if (!ac) return;
+
+  infoSource = "manual";
+  identifyBtn.classList.add("active");
+  showCameraInfo(ac);
+  fetchRoute(ac.callsign);
+});
 
 // ── Load COCO-SSD model on page load ──────
 // cocoSsd.load() accepts a modelUrl and onProgress callback.
@@ -482,7 +585,10 @@ closeCameraBtn?.addEventListener("click", () => {
   }
   cameraOverlay.classList.remove("active");
   debugPanel?.classList.remove("hidden");
-  // Reset loading screen for next open
+  // Reset state
+  infoSource = null;
+  identifyBtn?.classList.remove("active");
+  hideCameraInfo();
   modelLoading?.classList.remove("hidden");
 });
 
@@ -518,13 +624,29 @@ function startDetection() {
 
       for (const p of planes) {
         const [x, y, w, h] = p.bbox;
-        // Cyan glowing box matching the app's colour scheme
         ctx.strokeStyle = "#7df9ff";
         ctx.lineWidth   = 2;
         ctx.shadowColor = "#7df9ff";
         ctx.shadowBlur  = 8;
         ctx.strokeRect(x, y, w, h);
         ctx.shadowBlur  = 0;
+      }
+
+      // When detection fires, match and show info (takes priority over manual)
+      if (planes.length > 0) {
+        const ac = matchBestAircraft();
+        if (ac) {
+          infoSource = "detection";
+          identifyBtn?.classList.remove("active");   // detection took over
+          showCameraInfo(ac);
+          fetchRoute(ac.callsign);
+        }
+      } else {
+        // No planes — if detection was driving, hide info
+        if (infoSource === "detection") {
+          infoSource = null;
+          hideCameraInfo();
+        }
       }
     } catch { /* frame error — skip */ } finally {
       detectionRunning = false;
