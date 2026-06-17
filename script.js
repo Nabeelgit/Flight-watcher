@@ -460,6 +460,55 @@ function hideCameraInfo() {
   cameraInfoEl?.classList.add("hidden");
 }
 
+// ── Ensure radar data is available in camera mode ──
+// Camera mode needs GPS, orientation, and the aircraft fetch loop.
+// If radar was never started, set these up independently.
+let cameraDataActive = false;
+
+async function ensureCameraData() {
+  if (cameraDataActive) return;
+  cameraDataActive = true;
+
+  // 1. Orientation — request permission (iOS) and attach listener
+  if (
+    typeof DeviceOrientationEvent !== "undefined" &&
+    typeof DeviceOrientationEvent.requestPermission === "function"
+  ) {
+    try {
+      const perm = await DeviceOrientationEvent.requestPermission();
+      if (perm === "granted") {
+        window.addEventListener("deviceorientation", handleOrientation, true);
+      }
+    } catch { /* ignore */ }
+  } else {
+    window.addEventListener("deviceorientation", handleOrientation, true);
+  }
+
+  // 2. GPS — get location if we don't have it yet
+  if ((!userLat || !userLon) && navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        userLat = pos.coords.latitude;
+        userLon = pos.coords.longitude;
+        // Kick off aircraft fetch once we have a position
+        startCameraFetch();
+      },
+      () => { /* location failed — identify won't work but camera still shows */ },
+      { enableHighAccuracy: false, timeout: 10_000 }
+    );
+  } else if (userLat && userLon) {
+    startCameraFetch();
+  }
+}
+
+// Aircraft fetch loop for camera mode (only if radar isn't already running it)
+function startCameraFetch() {
+  fetchAircraft();
+  if (!fetchTimer) {
+    fetchTimer = setInterval(fetchAircraft, FETCH_INTERVAL_MS);
+  }
+}
+
 // ── Identify button ─────────────────────────
 identifyBtn?.addEventListener("click", () => {
   // If detection is driving the info, don't interfere
@@ -475,7 +524,21 @@ identifyBtn?.addEventListener("click", () => {
 
   // Match and show
   const ac = matchBestAircraft();
-  if (!ac) return;
+  if (!ac) {
+    // Tell the user why nothing happened
+    document.getElementById("cam-aircraft").textContent =
+      !userLat ? "Waiting for GPS..."
+      : phoneHeading === null ? "Waiting for compass..."
+      : !aircraftList.length ? "No aircraft in range"
+      : "No match";
+    document.getElementById("cam-airline").textContent = "";
+    document.getElementById("cam-route").textContent = "";
+    document.getElementById("cam-speed").textContent = "";
+    cameraInfoEl?.classList.remove("hidden");
+    infoSource = "manual";
+    identifyBtn.classList.add("active");
+    return;
+  }
 
   infoSource = "manual";
   identifyBtn.classList.add("active");
@@ -603,6 +666,9 @@ openCameraBtn?.addEventListener("click", async () => {
 
   // Wait for video to be playing before starting detection
   cameraFeed.addEventListener("playing", startDetection, { once: true });
+
+  // Set up GPS, orientation and aircraft data for identify/detection
+  ensureCameraData();
 });
 
 // ── Close camera ───────────────────────────
@@ -615,6 +681,14 @@ closeCameraBtn?.addEventListener("click", () => {
   }
   cameraOverlay.classList.remove("active");
   debugPanel?.classList.remove("hidden");
+
+  // Stop camera-only fetch loop if radar isn't using it
+  if (!active && fetchTimer) {
+    clearInterval(fetchTimer);
+    fetchTimer = null;
+  }
+  cameraDataActive = false;
+
   // Reset state
   infoSource = null;
   identifyBtn?.classList.remove("active");
