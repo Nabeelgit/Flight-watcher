@@ -790,30 +790,44 @@ zoomOutBtn?.addEventListener("click", () => applyZoom(currentZoom - zoomStep()))
 
 // ── Pinch to zoom ───────────────────────────
 // Tracks two-finger touch distance; scales zoom proportionally to pinch delta.
+// Listeners are non-passive so we can preventDefault() and stop the browser's
+// native pinch-to-zoom/double-tap-zoom from firing on top of our custom zoom.
 let pinchStartDist = null;
 let pinchStartZoom = 1;
 
-cameraFeed.addEventListener("touchstart", (e) => {
+cameraOverlay.addEventListener("touchstart", (e) => {
   if (e.touches.length === 2) {
+    e.preventDefault();
     pinchStartDist = getTouchDistance(e.touches);
     pinchStartZoom = currentZoom;
   }
-}, { passive: true });
+}, { passive: false });
 
-cameraFeed.addEventListener("touchmove", (e) => {
-  if (e.touches.length === 2 && pinchStartDist) {
-    const newDist = getTouchDistance(e.touches);
-    const scale   = newDist / pinchStartDist;
-    const range   = zoomMax() - zoomMin();
-    // Map pinch scale to zoom range proportionally
-    const newZoom = pinchStartZoom * scale;
-    applyZoom(newZoom);
+cameraOverlay.addEventListener("touchmove", (e) => {
+  if (e.touches.length === 2) {
+    e.preventDefault();   // block native pinch zoom on the page
+    if (pinchStartDist) {
+      const newDist = getTouchDistance(e.touches);
+      const scale   = newDist / pinchStartDist;
+      const newZoom = pinchStartZoom * scale;
+      applyZoom(newZoom);
+    }
   }
-}, { passive: true });
+}, { passive: false });
 
-cameraFeed.addEventListener("touchend", () => {
-  pinchStartDist = null;
-}, { passive: true });
+cameraOverlay.addEventListener("touchend", (e) => {
+  if (e.touches.length < 2) pinchStartDist = null;
+}, { passive: false });
+
+// Block double-tap-to-zoom inside camera mode specifically
+let lastTapTime = 0;
+cameraOverlay.addEventListener("touchend", (e) => {
+  const now = Date.now();
+  if (now - lastTapTime < 300) {
+    e.preventDefault();
+  }
+  lastTapTime = now;
+}, { passive: false });
 
 function getTouchDistance(touches) {
   const dx = touches[0].clientX - touches[1].clientX;
