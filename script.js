@@ -59,6 +59,8 @@ const cameraOverlay  = document.getElementById("camera-overlay");
 const cameraFeed     = document.getElementById("camera-feed");
 const cameraBarHint  = document.getElementById("camera-bar-hint");
 const photoStrip     = document.getElementById("photo-strip");
+const identifyBtn    = document.getElementById("identify-btn");
+const cameraInfoEl   = document.getElementById("camera-info");
 
 // ── Manual lock controls ───────────────────────
 lockBtn?.addEventListener("click", () => {
