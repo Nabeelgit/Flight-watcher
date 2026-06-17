@@ -61,6 +61,8 @@ const cameraBarHint  = document.getElementById("camera-bar-hint");
 const photoStrip     = document.getElementById("photo-strip");
 const identifyBtn    = document.getElementById("identify-btn");
 const cameraInfoEl   = document.getElementById("camera-info");
+const zoomInBtn      = document.getElementById("zoom-in-btn");
+const zoomOutBtn     = document.getElementById("zoom-out-btn");
 
 // ── Manual lock controls ───────────────────────
 lockBtn?.addEventListener("click", () => {
@@ -397,6 +399,14 @@ const toDeg = r => r * 180 / Math.PI;
 let cameraStream     = null;
 let infoSource       = null;   // null | "manual" | "detection"
 let cameraMatchedAc  = null;   // aircraft currently shown in camera info
+
+// ── Zoom state ──────────────────────────────────
+let zoomCapabilities = null;   // { min, max, step } from track — null if hardware zoom unsupported
+let currentZoom      = 1;
+let cssZoomFallback  = false;  // true when using CSS transform instead of hardware zoom
+const CSS_ZOOM_MIN   = 1;
+const CSS_ZOOM_MAX   = 4;
+const CSS_ZOOM_STEP  = 0.3;
 let cocoModel        = null;   // loaded once at startup
 let detectionRunning = false;  // prevents overlapping inference calls
 let detectionFrame   = null;   // requestAnimationFrame handle
@@ -669,6 +679,9 @@ openCameraBtn?.addEventListener("click", async () => {
 
   // Set up GPS, orientation and aircraft data for identify/detection
   ensureCameraData();
+
+  // Set up zoom (hardware if supported, CSS transform fallback otherwise)
+  initZoom();
 });
 
 // ── Close camera ───────────────────────────
@@ -694,7 +707,119 @@ closeCameraBtn?.addEventListener("click", () => {
   identifyBtn?.classList.remove("active");
   hideCameraInfo();
   modelLoading?.classList.remove("hidden");
+
+  // Reset zoom for next open
+  resetZoom();
 });
+
+// ── Zoom system ─────────────────────────────
+// Tries hardware zoom (MediaStreamTrack.applyConstraints) first — this is
+// true optical/sensor zoom on devices that support it (most modern phones).
+// Falls back to CSS transform scaling on devices/browsers that don't expose
+// the "zoom" constraint (notably most desktop browsers, some Android WebViews).
+function initZoom() {
+  currentZoom     = 1;
+  cssZoomFallback = false;
+  cameraFeed.style.transform = "scale(1)";
+
+  const track = cameraStream?.getVideoTracks?.()[0];
+  if (!track) return;
+
+  const capabilities = track.getCapabilities?.();
+  if (capabilities?.zoom) {
+    zoomCapabilities = capabilities.zoom;   // { min, max, step }
+    currentZoom      = capabilities.zoom.min ?? 1;
+  } else {
+    // Hardware zoom not supported — use CSS transform instead
+    zoomCapabilities = null;
+    cssZoomFallback  = true;
+  }
+  updateZoomButtonStates();
+}
+
+function applyZoom(newZoom) {
+  if (cssZoomFallback) {
+    newZoom = Math.min(CSS_ZOOM_MAX, Math.max(CSS_ZOOM_MIN, newZoom));
+    currentZoom = newZoom;
+    cameraFeed.style.transform = `scale(${newZoom})`;
+    // Canvas must scale identically so bounding boxes stay aligned with the zoomed video
+    const canvas = document.getElementById("detection-canvas");
+    if (canvas) canvas.style.transform = `scale(${newZoom})`;
+  } else if (zoomCapabilities) {
+    newZoom = Math.min(zoomCapabilities.max, Math.max(zoomCapabilities.min, newZoom));
+    currentZoom = newZoom;
+    const track = cameraStream?.getVideoTracks?.()[0];
+    track?.applyConstraints({ advanced: [{ zoom: newZoom }] }).catch(() => {
+      // Constraint failed — device claimed support but rejected it; fall back to CSS
+      cssZoomFallback  = true;
+      zoomCapabilities = null;
+      cameraFeed.style.transform = `scale(${newZoom})`;
+    });
+  }
+  updateZoomButtonStates();
+}
+
+function zoomStep() {
+  return cssZoomFallback ? CSS_ZOOM_STEP : (zoomCapabilities?.step || 0.5);
+}
+
+function zoomMin() {
+  return cssZoomFallback ? CSS_ZOOM_MIN : (zoomCapabilities?.min ?? 1);
+}
+
+function zoomMax() {
+  return cssZoomFallback ? CSS_ZOOM_MAX : (zoomCapabilities?.max ?? 1);
+}
+
+function updateZoomButtonStates() {
+  if (zoomInBtn)  zoomInBtn.disabled  = currentZoom >= zoomMax();
+  if (zoomOutBtn) zoomOutBtn.disabled = currentZoom <= zoomMin();
+}
+
+function resetZoom() {
+  currentZoom      = 1;
+  zoomCapabilities = null;
+  cssZoomFallback  = false;
+  cameraFeed.style.transform = "scale(1)";
+  const canvas = document.getElementById("detection-canvas");
+  if (canvas) canvas.style.transform = "scale(1)";
+}
+
+zoomInBtn?.addEventListener("click", () => applyZoom(currentZoom + zoomStep()));
+zoomOutBtn?.addEventListener("click", () => applyZoom(currentZoom - zoomStep()));
+
+// ── Pinch to zoom ───────────────────────────
+// Tracks two-finger touch distance; scales zoom proportionally to pinch delta.
+let pinchStartDist = null;
+let pinchStartZoom = 1;
+
+cameraFeed.addEventListener("touchstart", (e) => {
+  if (e.touches.length === 2) {
+    pinchStartDist = getTouchDistance(e.touches);
+    pinchStartZoom = currentZoom;
+  }
+}, { passive: true });
+
+cameraFeed.addEventListener("touchmove", (e) => {
+  if (e.touches.length === 2 && pinchStartDist) {
+    const newDist = getTouchDistance(e.touches);
+    const scale   = newDist / pinchStartDist;
+    const range   = zoomMax() - zoomMin();
+    // Map pinch scale to zoom range proportionally
+    const newZoom = pinchStartZoom * scale;
+    applyZoom(newZoom);
+  }
+}, { passive: true });
+
+cameraFeed.addEventListener("touchend", () => {
+  pinchStartDist = null;
+}, { passive: true });
+
+function getTouchDistance(touches) {
+  const dx = touches[0].clientX - touches[1].clientX;
+  const dy = touches[0].clientY - touches[1].clientY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
 
 // ── Detection loop ─────────────────────────
 function startDetection() {

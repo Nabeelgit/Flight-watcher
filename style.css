@@ -526,3 +526,45 @@ h1{
     font-size: 0.68rem !important;
     text-shadow: 0 0 8px rgba(125,249,255,0.6) !important;
 }
+
+/* ── Zoom controls — under X button ──────── */
+#zoom-controls {
+    position: absolute;
+    top: 74px;
+    right: 20px;
+    z-index: 220;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+#zoom-in-btn,
+#zoom-out-btn {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background: #000;
+    border: 2px solid #7df9ff;
+    box-shadow: 0 0 8px rgba(125,249,255,0.3);
+    color: #7df9ff;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.2rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, box-shadow 0.15s;
+}
+
+#zoom-in-btn:active,
+#zoom-out-btn:active {
+    background: rgba(125,249,255,0.15);
+    box-shadow: 0 0 14px rgba(125,249,255,0.6);
+}
+
+#zoom-in-btn:disabled,
+#zoom-out-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
