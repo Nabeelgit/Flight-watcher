@@ -401,7 +401,7 @@ let cocoModel        = null;   // loaded once at startup
 let detectionRunning = false;  // prevents overlapping inference calls
 let detectionFrame   = null;   // requestAnimationFrame handle
 
-const DETECTION_INTERVAL_MS  = 250;   // run inference every 250ms
+const DETECTION_INTERVAL_MS  = 400;   // run inference every 400ms — smoother on mobile
 const CONFIDENCE_THRESHOLD   = 0.4;   // min score to draw a box
 
 const debugPanel = document.getElementById("debug");
@@ -514,48 +514,76 @@ async function fetchWithProgress(url, onProgress) {
   return new Response(blob, { headers: res.headers });
 }
 
-window.addEventListener("load", async () => {
+// TF.js is loaded on demand when camera opens (not on page load)
+// This prevents the 3MB JS parse from freezing the UI on first visit
+let tfLoaded = false;
+
+async function loadTF() {
+  if (tfLoaded) return true;
   try {
-    // Phase 1: fetch the model.json manifest (tiny, instant)
-    setProgress(2);
+    // Dynamically inject tf.min.js then coco-ssd.min.js in order
+    await loadScript("./assets/tf.min.js");
+    await loadScript("./assets/coco-ssd.min.js");
+    tfLoaded = true;
+    return true;
+  } catch (err) {
+    console.error("TF.js load failed:", err);
+    return false;
+  }
+}
 
-    // Phase 2: load model — cocoSsd.load() accepts a base path
-    // We can't intercept individual weight shard fetches without a custom IOHandler,
-    // so we animate the bar smoothly as an estimated progress while loading.
-    // This gives honest UX — the bar moves, user sees real activity.
-    let estimatedPct = 2;
-    const progressInterval = setInterval(() => {
-      // Ease toward 90% while waiting — never hits 100 until truly done
-      estimatedPct += (90 - estimatedPct) * 0.04;
-      setProgress(estimatedPct);
-    }, 200);
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload  = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
 
+async function loadModel() {
+  setProgress(2);
+  let estimatedPct = 2;
+  const interval = setInterval(() => {
+    estimatedPct += (90 - estimatedPct) * 0.04;
+    setProgress(estimatedPct);
+  }, 200);
+
+  try {
+    await tf.setBackend("webgl");
+    await tf.ready();
     cocoModel = await cocoSsd.load();
-
-    clearInterval(progressInterval);
+    clearInterval(interval);
     setProgress(100);
     console.log("COCO-SSD model loaded");
   } catch (err) {
+    clearInterval(interval);
     console.error("Model load failed:", err);
     if (modelProgressPct) modelProgressPct.textContent = "LOAD FAILED";
   }
-});
+}
 
 // ── Open camera ────────────────────────────
 openCameraBtn?.addEventListener("click", async () => {
-  // Show overlay immediately with loading screen
+  // Show overlay with loading screen immediately — page stays responsive
   cameraOverlay.classList.add("active");
   debugPanel?.classList.add("hidden");
 
-  // If model isn't ready yet, show loading screen until it is
+  // Load TF.js scripts on demand (first tap only — subsequent taps are instant)
+  if (!tfLoaded) {
+    modelLoading?.classList.remove("hidden");
+    const ok = await loadTF();
+    if (!ok) {
+      if (modelProgressPct) modelProgressPct.textContent = "LOAD FAILED";
+      return;
+    }
+  }
+
+  // Load model if not already loaded
   if (!cocoModel) {
     modelLoading?.classList.remove("hidden");
-    // Poll until model loads
-    await new Promise(resolve => {
-      const check = setInterval(() => {
-        if (cocoModel) { clearInterval(check); resolve(); }
-      }, 200);
-    });
+    await loadModel();
   }
   modelLoading?.classList.add("hidden");
 
