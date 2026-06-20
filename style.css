@@ -573,3 +573,104 @@ h1{
 #camera-overlay {
     touch-action: none;
 }
+
+/* ════════════════════════════════════════
+   PHOTO STRIP THUMBNAILS
+   ════════════════════════════════════════ */
+.photo-thumb {
+    width: 56px;
+    height: 56px;
+    border-radius: 6px;
+    object-fit: cover;
+    border: 1px solid rgba(125,249,255,0.4);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: border-color 0.15s, transform 0.1s;
+}
+
+.photo-thumb:active {
+    transform: scale(0.94);
+    border-color: #7df9ff;
+}
+
+/* ════════════════════════════════════════
+   PHOTO PREVIEW OVERLAY
+   ════════════════════════════════════════ */
+#photo-preview-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    background: #000;
+}
+
+#photo-preview-overlay.active {
+    display: block;
+}
+
+#photo-preview-img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+#photo-preview-close {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    z-index: 310;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+    font-size: 1rem;
+    font-family: 'Orbitron', sans-serif;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    backdrop-filter: blur(6px);
+}
+
+#photo-preview-close:active {
+    background: rgba(0,0,0,0.85);
+}
+
+#photo-preview-actions {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 310;
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    padding: 20px 16px env(safe-area-inset-bottom, 20px);
+    background: linear-gradient(to top, rgba(0,0,0,0.85), transparent);
+}
+
+#photo-save-btn,
+#photo-share-btn {
+    font-family: 'Orbitron', sans-serif;
+    font-size: .8rem;
+    letter-spacing: 3px;
+    padding: 14px 32px;
+    background: transparent;
+    border: 2px solid #7df9ff;
+    border-radius: 6px;
+    color: #7df9ff;
+    cursor: pointer;
+    box-shadow:
+        0 0 10px rgba(125,249,255,.4),
+        inset 0 0 10px rgba(125,249,255,.2);
+    transition: 0.2s ease;
+}
+
+#photo-save-btn:active,
+#photo-share-btn:active {
+    background: rgba(125,249,255,.1);
+}

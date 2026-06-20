@@ -59,6 +59,12 @@ const cameraOverlay  = document.getElementById("camera-overlay");
 const cameraFeed     = document.getElementById("camera-feed");
 const cameraBarHint  = document.getElementById("camera-bar-hint");
 const photoStrip     = document.getElementById("photo-strip");
+const shutterBtn      = document.getElementById("shutter-btn");
+const previewOverlay  = document.getElementById("photo-preview-overlay");
+const previewImg      = document.getElementById("photo-preview-img");
+const previewClose    = document.getElementById("photo-preview-close");
+const saveBtn         = document.getElementById("photo-save-btn");
+const shareBtn        = document.getElementById("photo-share-btn");
 const identifyBtn    = document.getElementById("identify-btn");
 const cameraInfoEl   = document.getElementById("camera-info");
 const zoomInBtn      = document.getElementById("zoom-in-btn");
@@ -908,3 +914,151 @@ function stopDetection() {
   const ctx    = canvas?.getContext("2d");
   ctx?.clearRect(0, 0, canvas.width, canvas.height);
 }
+
+// ── Photo capture ───────────────────────────
+// Stored in memory only — cleared on page reload, never persisted.
+const photos = [];   // { blobUrl, id }
+
+shutterBtn?.addEventListener("click", () => {
+  capturePhoto();
+});
+
+function capturePhoto() {
+  const vw = cameraFeed.videoWidth;
+  const vh = cameraFeed.videoHeight;
+  if (!vw || !vh) return;   // video not ready
+
+  const canvas = document.createElement("canvas");
+  canvas.width  = vw;
+  canvas.height = vh;
+  const ctx = canvas.getContext("2d");
+
+  // 1. Draw the current video frame at full resolution
+  ctx.drawImage(cameraFeed, 0, 0, vw, vh);
+
+  // 2. If flight info is currently visible, draw it onto the photo too
+  //    (positioned to match where it appears on screen, scaled to video resolution)
+  if (cameraInfoEl && !cameraInfoEl.classList.contains("hidden")) {
+    drawInfoOverlayOnCanvas(ctx, vw, vh);
+  }
+
+  // 3. Convert to blob and store
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    const blobUrl = URL.createObjectURL(blob);
+    const photo   = { blobUrl, id: Date.now() };
+    photos.unshift(photo);
+    addThumbnail(photo);
+  }, "image/jpeg", 0.92);
+
+  // Quick visual flash feedback
+  flashShutter();
+}
+
+function flashShutter() {
+  const flash = document.createElement("div");
+  flash.style.position = "absolute";
+  flash.style.inset = "0";
+  flash.style.background = "#fff";
+  flash.style.opacity = "0.6";
+  flash.style.zIndex = "215";
+  flash.style.pointerEvents = "none";
+  flash.style.transition = "opacity 0.25s ease";
+  cameraOverlay.appendChild(flash);
+  requestAnimationFrame(() => { flash.style.opacity = "0"; });
+  setTimeout(() => flash.remove(), 300);
+}
+
+// Replicate the on-screen flight info panel onto the captured canvas.
+// Scales font/positions proportionally from CSS pixels to video resolution.
+function drawInfoOverlayOnCanvas(ctx, vw, vh) {
+  const rect      = cameraOverlay.getBoundingClientRect();
+  const scaleX    = vw / rect.width;
+  const scaleY    = vh / rect.height;
+  const infoRect  = cameraInfoEl.getBoundingClientRect();
+
+  const x = (infoRect.left - rect.left) * scaleX;
+  const y = (infoRect.top  - rect.top)  * scaleY;
+  const w = infoRect.width  * scaleX;
+  const h = infoRect.height * scaleY;
+
+  // Background panel
+  ctx.fillStyle = "rgba(0,0,0,0.72)";
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = "rgba(125,249,255,0.5)";
+  ctx.lineWidth = 2 * scaleX;
+  ctx.strokeRect(x, y, w, h);
+
+  // Text lines
+  const lines = [
+    document.getElementById("cam-aircraft")?.textContent,
+    document.getElementById("cam-airline")?.textContent,
+    document.getElementById("cam-route")?.textContent,
+    document.getElementById("cam-speed")?.textContent,
+  ].filter(Boolean);
+
+  const fontSize = 13 * scaleY;
+  ctx.font = `${fontSize}px Orbitron, sans-serif`;
+  ctx.fillStyle = "#d7ffff";
+  ctx.textBaseline = "top";
+
+  const padding   = 14 * scaleX;
+  const lineGap   = 22 * scaleY;
+  lines.forEach((line, i) => {
+    ctx.fillStyle = i === 0 ? "#7df9ff" : "#d7ffff";
+    ctx.fillText(line, x + padding, y + padding + i * lineGap);
+  });
+}
+
+function addThumbnail(photo) {
+  const img = document.createElement("img");
+  img.src = photo.blobUrl;
+  img.className = "photo-thumb";
+  img.dataset.photoId = photo.id;
+  img.addEventListener("click", () => openPreview(photo));
+  photoStrip.prepend(img);
+}
+
+// ── Photo preview / save / share ────────────
+let currentPreviewPhoto = null;
+
+function openPreview(photo) {
+  currentPreviewPhoto = photo;
+  previewImg.src = photo.blobUrl;
+  previewOverlay.classList.add("active");
+}
+
+previewClose?.addEventListener("click", () => {
+  previewOverlay.classList.remove("active");
+  currentPreviewPhoto = null;
+});
+
+saveBtn?.addEventListener("click", () => {
+  if (!currentPreviewPhoto) return;
+  const a = document.createElement("a");
+  a.href = currentPreviewPhoto.blobUrl;
+  a.download = `flight-watcher-${currentPreviewPhoto.id}.jpg`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+});
+
+shareBtn?.addEventListener("click", async () => {
+  if (!currentPreviewPhoto) return;
+
+  try {
+    const res  = await fetch(currentPreviewPhoto.blobUrl);
+    const blob = await res.blob();
+    const file = new File([blob], `flight-watcher-${currentPreviewPhoto.id}.jpg`, { type: "image/jpeg" });
+
+    if (navigator.share && navigator.canShare?.({ files: [file] })) {
+      await navigator.share({ files: [file], title: "Flight Watcher" });
+    } else {
+      alert("Sharing not supported on this browser. Use Save instead.");
+    }
+  } catch (err) {
+    if (err.name !== "AbortError") {
+      console.error("Share failed:", err);
+    }
+  }
+});
