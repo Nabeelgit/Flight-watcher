@@ -119,20 +119,10 @@ radarBtn.addEventListener("click", async () => {
 
   setStatus("Requesting permissions…");
 
-  if (
-    typeof DeviceOrientationEvent !== "undefined" &&
-    typeof DeviceOrientationEvent.requestPermission === "function"
-  ) {
-    try {
-      const perm = await DeviceOrientationEvent.requestPermission();
-      if (perm !== "granted") {
-        setStatus("Orientation permission denied. Enable in Settings > Safari.");
-        return;
-      }
-    } catch (err) {
-      setStatus("Permission error: " + err.message);
-      return;
-    }
+  const orientOk = await requestOrientationPermission();
+  if (!orientOk && typeof DeviceOrientationEvent?.requestPermission === "function") {
+    setStatus("Orientation permission denied. Enable in Settings > Safari.");
+    return;
   }
 
   if (!navigator.geolocation) { setStatus("Geolocation not supported."); return; }
@@ -479,13 +469,15 @@ function hideCameraInfo() {
 // ── Ensure radar data is available in camera mode ──
 // Camera mode needs GPS, orientation, and the aircraft fetch loop.
 // If radar was never started, set these up independently.
-let cameraDataActive = false;
+let cameraDataActive       = false;
+let orientationPermGranted = false;
 
-async function ensureCameraData() {
-  if (cameraDataActive) return;
-  cameraDataActive = true;
+// Requests orientation permission and attaches the listener.
+// Must be called synchronously near the start of a user-gesture handler —
+// iOS can silently ignore the request if too much async work happens first.
+async function requestOrientationPermission() {
+  if (orientationPermGranted) return true;
 
-  // 1. Orientation — request permission (iOS) and attach listener
   if (
     typeof DeviceOrientationEvent !== "undefined" &&
     typeof DeviceOrientationEvent.requestPermission === "function"
@@ -494,19 +486,33 @@ async function ensureCameraData() {
       const perm = await DeviceOrientationEvent.requestPermission();
       if (perm === "granted") {
         window.addEventListener("deviceorientation", handleOrientation, true);
+        orientationPermGranted = true;
       }
-    } catch { /* ignore */ }
+    } catch { /* ignore — perm stays false, UI will show "waiting for compass" */ }
   } else {
+    // Non-iOS devices don't require explicit permission
     window.addEventListener("deviceorientation", handleOrientation, true);
+    orientationPermGranted = true;
+  }
+  return orientationPermGranted;
+}
+
+async function ensureCameraData() {
+  if (cameraDataActive) return;
+  cameraDataActive = true;
+
+  // Orientation permission already requested synchronously in the camera
+  // click handler — just attach if somehow not yet granted (e.g. non-iOS).
+  if (!orientationPermGranted) {
+    await requestOrientationPermission();
   }
 
-  // 2. GPS — get location if we don't have it yet
+  // GPS — get location if we don't have it yet
   if ((!userLat || !userLon) && navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
       pos => {
         userLat = pos.coords.latitude;
         userLon = pos.coords.longitude;
-        // Kick off aircraft fetch once we have a position
         startCameraFetch();
       },
       () => { /* location failed — identify won't work but camera still shows */ },
@@ -645,6 +651,12 @@ async function loadModel() {
 
 // ── Open camera ────────────────────────────
 openCameraBtn?.addEventListener("click", async () => {
+  // Request orientation permission FIRST, before any other async work.
+  // iOS requires this call to happen as close to the user tap as possible —
+  // if too much async work (model loading, camera stream) happens first,
+  // iOS may silently ignore the permission request.
+  await requestOrientationPermission();
+
   // Show overlay with loading screen immediately — page stays responsive
   cameraOverlay.classList.add("active");
   debugPanel?.classList.add("hidden");
@@ -683,7 +695,8 @@ openCameraBtn?.addEventListener("click", async () => {
   // Wait for video to be playing before starting detection
   cameraFeed.addEventListener("playing", startDetection, { once: true });
 
-  // Set up GPS, orientation and aircraft data for identify/detection
+  // Set up GPS and aircraft data for identify/detection
+  // (orientation permission already requested above)
   ensureCameraData();
 
   // Set up zoom (hardware if supported, CSS transform fallback otherwise)
